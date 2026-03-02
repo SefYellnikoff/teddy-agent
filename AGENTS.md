@@ -164,22 +164,4 @@ PORT=3000
 - Error states must always be handled and shown to the user
 - Console logs are fine during development, remove before final submission
 
----
 
-## Current Status
-
-- [x] Repo initialized
-- [x] Dependencies installed: `@google/genai`, `express`, `cors`, `dotenv`
-- [x] Gemini API key available in `backend/.env`
-- [ ] `backend/index.js` — not written yet
-- [ ] `backend/gemini.js` — not written yet
-- [ ] Frontend Vue app — not written yet
-- [ ] Dockerfile — not written yet
-
----
-
-## What to build next
-
-> **Start here:** write `backend/index.js` and `backend/gemini.js` so that
-> `POST /api/chat` works end-to-end with Gemini and returns Teddy's reply.
-> Test with a simple curl or Postman call before moving to the frontend.
