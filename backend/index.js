@@ -22,7 +22,7 @@ app.get('/health', (req, res) => {
 // Chat endpoint
 app.post('/api/chat', async (req, res) => {
   try {
-    const { message, history = [], topic } = req.body;
+    const { message, history = [], topic, isFirstMessage = false } = req.body;
 
     // Validate request
     if (!message || typeof message !== 'string') {
@@ -30,7 +30,7 @@ app.post('/api/chat', async (req, res) => {
     }
 
     // Get Teddy's reply from Gemini
-    const reply = await getTeddyReply(message, history, topic);
+    const reply = await getTeddyReply(message, history, topic, isFirstMessage);
 
     // Return the response
     res.json({ reply });

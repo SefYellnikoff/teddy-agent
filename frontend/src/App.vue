@@ -32,13 +32,6 @@
             </button>
           </div>
 
-          <!-- Topic Select Phase: Show Topic Buttons -->
-          <TopicSelector 
-            v-else-if="sessionPhase === 'topic-select'"
-            :disabled="isLoading"
-            @select-topic="selectTopic"
-          />
-
           <!-- Practicing Phase: Show Chat Bubbles -->
           <ChatBubbles 
             v-else-if="sessionPhase === 'practicing'"
@@ -78,7 +71,6 @@ import { ref, reactive, computed, onMounted, onUnmounted } from 'vue';
 import TeddyFace from './components/TeddyFace.vue';
 import MicButton from './components/MicButton.vue';
 import ChatBubbles from './components/ChatBubbles.vue';
-import TopicSelector from './components/TopicSelector.vue';
 import ParentDashboard from './components/ParentDashboard.vue';
 
 // API Configuration
@@ -86,7 +78,7 @@ const API_URL = 'http://localhost:3000/api/chat';
 
 // State
 const history = ref([]);
-const sessionPhase = ref('idle'); // idle, greeting, topic-select, practicing
+const sessionPhase = ref('idle'); // idle or practicing
 const animationState = ref('idle'); // Animation state: idle, listening, speaking (separate from sessionPhase)
 const showDashboard = ref(false);
 const error = ref('');
@@ -180,28 +172,55 @@ const displayHistory = computed(() => {
 
 // Methods
 
-// Phase 1: User clicks "Start Learning" button
+// Phase 1: User clicks "Start Learning" button → Jump directly to practicing
 const startSession = async () => {
-  isLoading.value = true;
-  sessionPhase.value = 'greeting';
-  animationState.value = 'speaking';
-
-  // Teddy greets
-  const greeting = 'Hello there! I\'m Teddy. I\'m so excited to practice English with you today!';
-
-  // Speak greeting
-  await new Promise((resolve) => {
-    speakReply(greeting, resolve);
-  });
-
-  // After greeting, move to topic selection
+  selectedTopic.value = null; // Will be auto-detected from first response
+  sessionPhase.value = 'practicing';
   animationState.value = 'idle';
-  sessionPhase.value = 'topic-select';
   isLoading.value = false;
 
   // Initialize session timer
   sessionStartTime = Date.now();
   updateTimer = setInterval(updateSessionDuration, 1000);
+
+  // Fetch Teddy's first greeting from Gemini
+  try {
+    animationState.value = 'speaking';
+    const response = await fetch(API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        message: '[START_SESSION]',
+        history: [],
+        topic: null,
+        isFirstMessage: true,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`API error: ${response.status}`);
+    }
+
+    const data = await response.json();
+    const teddyGreeting = data.reply;
+
+    // Add Teddy's greeting to history
+    history.value.push({
+      role: 'model',
+      parts: [{ text: teddyGreeting }],
+      text: teddyGreeting,
+    });
+
+    // Speak the greeting
+    await new Promise((resolve) => {
+      speakReply(teddyGreeting, resolve);
+    });
+
+    animationState.value = 'idle';
+  } catch (err) {
+    error.value = `Error: ${err.message}`;
+    animationState.value = 'idle';
+  }
 };
 
 // Test button: Play a sample voice line
@@ -211,40 +230,30 @@ const testSpeech = async () => {
   speakReply(testText);
 };
 
-// Phase 2: User selects a topic
-const selectTopic = async (topicId) => {
-  selectedTopic.value = topicId;
-  sessionPhase.value = 'practicing';
-  isLoading.value = true;
-  animationState.value = 'speaking';
+// Helper: Detect topic from user's response
+const detectTopicFromResponse = (userText) => {
+  const lowerText = userText.toLowerCase();
+  const keywords = {
+    'daily-life': ['school', 'home', 'family', 'breakfast', 'lunch', 'dinner', 'morning', 'day', 'routine', 'homework', 'bed', 'friend', 'play'],
+    'adventure': ['adventure', 'travel', 'trip', 'place', 'go', 'went', 'visit', 'explore', 'mountain', 'beach', 'city'],
+    'hobbies': ['hobby', 'like', 'enjoy', 'fun', 'play', 'game', 'sport', 'music', 'read', 'draw', 'sing', 'dance'],
+  };
 
-  // Teddy initiates topic-specific greeting
-  let topicGreeting = '';
-  if (topicId === 'daily-life') {
-    topicGreeting = 'Great! Let\'s talk about your daily life. Tell me about something you like to do every day!';
-  } else if (topicId === 'adventure') {
-    topicGreeting = 'Wonderful! Let\'s explore some adventures. Have you been anywhere fun recently?';
-  } else if (topicId === 'hobbies') {
-    topicGreeting = 'Awesome! Let\'s chat about hobbies. What\'s something you enjoy doing in your free time?';
+  let bestMatch = 'daily-life';
+  let maxMatches = 0;
+
+  for (const [topic, words] of Object.entries(keywords)) {
+    const matches = words.filter(w => lowerText.includes(w)).length;
+    if (matches > maxMatches) {
+      maxMatches = matches;
+      bestMatch = topic;
+    }
   }
 
-  // Add Teddy's opening message to history
-  history.value.push({
-    role: 'model',
-    parts: [{ text: topicGreeting }],
-    text: topicGreeting,
-  });
-
-  // Speak the greeting
-  await new Promise((resolve) => {
-    speakReply(topicGreeting, resolve);
-  });
-
-  animationState.value = 'idle';
-  isLoading.value = false;
+  return bestMatch;
 };
 
-// Phase 3: Handle user message during practice
+// Handle user message during practice
 const startRecording = () => {
   if (!recognition) return;
   recognition.start();
@@ -257,6 +266,11 @@ const stopRecording = () => {
 
 const handleUserMessage = async (userText) => {
   if (!userText.trim()) return;
+
+  // Auto-detect topic on first user message
+  if (!selectedTopic.value) {
+    selectedTopic.value = detectTopicFromResponse(userText);
+  }
 
   // Add user message to history
   history.value.push({
@@ -276,7 +290,8 @@ const handleUserMessage = async (userText) => {
       body: JSON.stringify({
         message: userText,
         history: history.value.slice(0, -1), // Exclude current message
-        topic: selectedTopic.value, // Pass selected topic to backend
+        topic: selectedTopic.value,
+        isFirstMessage: false,
       }),
     });
 

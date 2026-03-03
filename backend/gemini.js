@@ -32,11 +32,41 @@ Ask about their favorite activities, what they like to do for fun, and encourage
  * @param {string} message - The user's message
  * @param {Array<{role: string, parts: Array<{text: string}>}>} history - Conversation history
  * @param {string} topic - The selected topic: daily-life, adventure, hobbies
+ * @param {boolean} isFirstMessage - Whether this is the first message to start the session
  * @returns {Promise<string>} - Teddy's reply
  */
-async function getTeddyReply(message, history = [], topic = 'daily-life') {
+async function getTeddyReply(message, history = [], topic = 'daily-life', isFirstMessage = false) {
   try {
-    // Select the appropriate system prompt based on topic
+    // Special handling for first message: send natural greeting + topic inquiry
+    if (isFirstMessage || message === '[START_SESSION]') {
+      const systemPromptText = `${BASE_TEDDY_PROMPT}
+This is the beginning of our conversation. Greet the child warmly and ask them what topic they'd like to talk about.
+You can mention these options: talking about their daily life (school, family, activities), adventures and travels, or their hobbies and things they enjoy.
+Make it fun and inviting!`;
+
+      const response = await client.models.generateContent({
+        model: 'models/gemini-flash-latest',
+        contents: [{
+          role: 'user',
+          parts: [{ text: 'Hello Teddy!' }],
+        }],
+        systemInstruction: {
+          parts: [{ text: systemPromptText }],
+        },
+      });
+
+      let reply = null;
+      if (response && Array.isArray(response.candidates) && response.candidates.length > 0) {
+        const parts = response.candidates[0].content && response.candidates[0].content.parts;
+        if (Array.isArray(parts)) {
+          reply = parts.map(p => p.text || '').join('');
+        }
+      }
+      if (!reply) reply = "Oh! I had a little trouble understanding. Could you say that again, please?";
+      return reply;
+    }
+
+    // Regular conversation flow: use topic-specific prompt
     const systemPromptText = TOPIC_PROMPTS[topic] || TOPIC_PROMPTS['daily-life'];
 
     // Build the full message history for the API
