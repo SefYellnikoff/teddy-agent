@@ -1,5 +1,10 @@
 <template>
   <div class="mic-button-wrapper">
+    <!-- Waveform Visualization -->
+    <div v-if="state === 'listening'" class="waveform-container">
+      <div class="waveform" v-for="i in 5" :key="i" :style="{ animationDelay: `${i * 0.1}s` }"></div>
+    </div>
+
     <button
       class="mic-button"
       :class="buttonClass"
@@ -12,7 +17,7 @@
     >
       <span v-if="state === 'idle'" class="icon">🎤</span>
       <span v-else-if="state === 'listening'" class="icon pulse">🎤</span>
-      <span v-else-if="state === 'thinking'" class="icon spinner">⏳</span>
+      <span v-else-if="state === 'thinking'" class="icon spinner">✨</span>
     </button>
     <p class="mic-label">{{ labelText }}</p>
   </div>
@@ -49,11 +54,11 @@ const buttonClass = computed(() => {
 const labelText = computed(() => {
   switch (props.state) {
     case 'listening':
-      return 'Release to send';
+      return '🔴 LISTENING...';
     case 'thinking':
-      return 'Processing...';
+      return '✨ THINKING...';
     default:
-      return 'Hold to talk';
+      return '🎤 TAP TO TALK';
   }
 });
 
@@ -75,27 +80,50 @@ const handleMouseUp = () => {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 16px;
+  gap: 20px;
+  position: relative;
+}
+
+.waveform-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 60px;
+}
+
+.waveform {
+  width: 6px;
+  height: 20px;
+  background: linear-gradient(180deg, #667eea, #764ba2);
+  border-radius: 3px;
+  animation: wave 0.6s ease-in-out infinite;
+}
+
+@keyframes wave {
+  0%, 100% { height: 20px; }
+  50% { height: 60px; }
 }
 
 .mic-button {
-  width: 120px;
-  height: 120px;
+  width: 160px;
+  height: 160px;
   border-radius: 50%;
-  border: none;
+  border: 4px solid white;
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   color: white;
-  font-size: 54px;
+  font-size: 70px;
   cursor: pointer;
   transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
   display: flex;
   align-items: center;
   justify-content: center;
   box-shadow: 
-    0 10px 30px rgba(102, 126, 234, 0.4),
+    0 15px 40px rgba(102, 126, 234, 0.4),
     0 0 0 0 rgba(102, 126, 234, 0.7);
   position: relative;
   overflow: hidden;
+  font-weight: bold;
 }
 
 .mic-button::before {

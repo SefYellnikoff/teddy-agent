@@ -1,32 +1,46 @@
 <template>
-  <div class="chat-bubbles">
+  <div class="chat-bubbles" ref="chatContainer">
     <div
       v-for="(msg, idx) in history"
       :key="idx"
       class="bubble-wrapper"
       :class="msg.role === 'user' ? 'user-row' : 'teddy-row'"
     >
-      <div v-if="msg.role === 'model'" class="teddy-icon">🧸</div>
-      <div
-        class="bubble"
+      <div class="bubble"
         :class="msg.role === 'user' ? 'user-bubble' : 'teddy-bubble'"
       >
-        {{ msg.text }}
+        <span v-if="msg.role === 'model'" class="bubble-icon">🧸</span>
+        <span class="bubble-text">{{ msg.text }}</span>
       </div>
     </div>
     <div v-if="history.length === 0" class="empty-state">
-      <p>👋 Hello! Press the mic button to start chatting with Teddy!</p>
+      <p>👂 Listening...</p>
     </div>
   </div>
 </template>
 
 <script setup>
-defineProps({
+import { watch, ref, nextTick } from 'vue';
+
+const props = defineProps({
   history: {
     type: Array,
     default: () => [],
   },
 });
+
+const chatContainer = ref(null);
+
+// Auto-scroll to bottom when new messages arrive
+watch(
+  () => props.history.length,
+  async () => {
+    await nextTick();
+    if (chatContainer.value) {
+      chatContainer.value.scrollTop = chatContainer.value.scrollHeight;
+    }
+  }
+);
 </script>
 
 <style scoped>
@@ -69,14 +83,26 @@ defineProps({
 }
 
 .bubble {
-  max-width: 70%;
-  padding: 14px 18px;
-  border-radius: 20px;
-  line-height: 1.5;
+  max-width: 75%;
+  padding: 16px 22px;
+  border-radius: 22px;
+  line-height: 1.6;
   word-wrap: break-word;
-  font-size: 15px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  font-size: 17px;
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.12);
   transition: transform 0.2s ease, box-shadow 0.2s ease;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.bubble-icon {
+  font-size: 24px;
+  flex-shrink: 0;
+}
+
+.bubble-text {
+  flex: 1;
 }
 
 .bubble:hover {
@@ -89,20 +115,16 @@ defineProps({
   color: white;
   border-bottom-right-radius: 6px;
   font-weight: 600;
-  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+  box-shadow: 0 5px 15px rgba(102, 126, 234, 0.35);
+  justify-content: flex-end;
 }
 
 .teddy-bubble {
-  background: linear-gradient(135deg, #f5f5f5 0%, #efefef 100%);
-  color: #222;
+  background: linear-gradient(135deg, #fff8e8 0%, #fff0d6 100%);
+  color: #2c3e50;
   border-bottom-left-radius: 6px;
   font-weight: 500;
-}
-
-.teddy-icon {
-  font-size: 32px;
-  margin-bottom: 4px;
-  animation: wobble 0.6s ease-in-out infinite;
+  box-shadow: 0 5px 15px rgba(255, 184, 102, 0.25);
 }
 
 @keyframes wobble {
@@ -116,10 +138,10 @@ defineProps({
   align-items: center;
   justify-content: center;
   height: 100%;
-  color: #666;
+  color: #888;
   text-align: center;
-  font-size: 17px;
-  font-weight: 600;
+  font-size: 19px;
+  font-weight: 500;
   text-shadow: none;
 }
 

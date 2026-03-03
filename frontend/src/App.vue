@@ -4,9 +4,13 @@
     <div v-if="!showDashboard" class="chat-interface">
       <!-- Header -->
       <div class="app-header">
-        <h1>🧸 Teddy English Tutor</h1>
+        <h1>🧸 Teddy</h1>
+        <div v-if="sessionPhase === 'practicing'" class="session-info">
+          <span class="stat">⏱ {{ formatTime(sessionStats.duration) }}</span>
+          <span class="stat">💬 {{ sessionStats.exchanges }}</span>
+        </div>
         <button v-if="sessionPhase === 'practicing'" class="end-session-btn" @click="endSession">
-          End Session
+          End
         </button>
       </div>
 
@@ -21,15 +25,14 @@
         <div class="content-area">
           <!-- Idle Phase: Show Start Button -->
           <div v-if="sessionPhase === 'idle'" class="idle-screen">
-            <h2>👋 Welcome to Teddy's English Practice!</h2>
-            <p>Click the button below to start learning with Teddy.</p>
-            <button class="start-btn" @click="startSession" :disabled="isLoading">
-              <span v-if="!isLoading">🎉 Start Learning</span>
-              <span v-else>Starting...</span>
-            </button>
-            <button class="test-btn" @click="testSpeech">
-              🔊 Test Teddy's Voice
-            </button>
+            <div class="idle-content">
+              <h2>Ready to practice English? 🎉</h2>
+              <p>Talk to Teddy and improve your skills!</p>
+              <button class="start-btn" @click="startSession" :disabled="isLoading">
+                <span v-if="!isLoading">🎤 START TALKING</span>
+                <span v-else>Loading...</span>
+              </button>
+            </div>
           </div>
 
           <!-- Practicing Phase: Show Chat Bubbles -->
@@ -223,11 +226,11 @@ const startSession = async () => {
   }
 };
 
-// Test button: Play a sample voice line
-const testSpeech = async () => {
-  console.log('🔊 Testing Teddy voice...');
-  const testText = 'Hello! I am Teddy. Can you hear me? This is a test!';
-  speakReply(testText);
+// Format time helper
+const formatTime = (seconds) => {
+  const mins = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  return `${mins}:${secs.toString().padStart(2, '0')}`;
 };
 
 // Helper: Detect topic from user's response
@@ -556,81 +559,69 @@ const exit = () => {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 20px;
+  gap: 30px;
   text-align: center;
   animation: fade-in 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+  padding: 40px 30px;
+}
+
+.idle-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
 }
 
 .idle-screen h2 {
-  font-size: 28px;
-  font-weight: 700;
+  font-size: 32px;
+  font-weight: 800;
   color: #333;
   margin: 0;
-  letter-spacing: -0.5px;
+  letter-spacing: -0.8px;
   background: linear-gradient(135deg, #667eea, #764ba2);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
+  line-height: 1.2;
 }
 
 .idle-screen p {
-  font-size: 16px;
+  font-size: 18px;
   color: #666;
   margin: 0;
-  max-width: 300px;
-  line-height: 1.5;
+  max-width: 350px;
+  line-height: 1.6;
+  font-weight: 500;
 }
 
 .start-btn {
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   color: white;
   border: none;
-  padding: 18px 40px;
-  border-radius: 24px;
-  font-size: 18px;
-  font-weight: 700;
+  padding: 20px 50px;
+  border-radius: 28px;
+  font-size: 20px;
+  font-weight: 800;
   cursor: pointer;
   transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
-  box-shadow: 0 8px 24px rgba(102, 126, 234, 0.3);
-  letter-spacing: 0.3px;
-  min-width: 200px;
+  box-shadow: 0 10px 30px rgba(102, 126, 234, 0.35);
+  letter-spacing: 0.8px;
+  min-width: 240px;
+  text-transform: uppercase;
 }
 
 .start-btn:hover:not(:disabled) {
-  transform: translateY(-4px);
-  box-shadow: 0 12px 32px rgba(102, 126, 234, 0.4);
+  transform: translateY(-6px);
+  box-shadow: 0 16px 40px rgba(102, 126, 234, 0.45);
 }
 
 .start-btn:active:not(:disabled) {
-  transform: translateY(-1px);
+  transform: translateY(-2px);
 }
 
 .start-btn:disabled {
-  opacity: 0.7;
+  opacity: 0.75;
   cursor: not-allowed;
-}
-
-.test-btn {
-  background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
-  color: white;
-  border: none;
-  padding: 12px 28px;
-  border-radius: 20px;
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
-  box-shadow: 0 4px 12px rgba(79, 172, 254, 0.3);
-  letter-spacing: 0.2px;
-}
-
-.test-btn:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 8px 20px rgba(79, 172, 254, 0.4);
-}
-
-.test-btn:active {
-  transform: translateY(0);
 }
 
 @keyframes fade-in {
