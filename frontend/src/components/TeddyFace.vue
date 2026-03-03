@@ -1,6 +1,18 @@
 <template>
   <div class="teddy-face">
-    <div id="lottie-container" class="lottie-container"></div>
+    <div id="lottie-container" class="lottie-container">
+      <!-- SVG Mouth Overlay -->
+      <svg
+        v-if="state === 'speaking'"
+        class="mouth"
+        viewBox="0 0 100 50"
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        <!-- Open mouth -->
+        <ellipse cx="50" cy="35" rx="20" ry="18" fill="#333" />
+        <ellipse cx="50" cy="32" rx="20" ry="12" fill="#ff9999" />
+      </svg>
+    </div>
     <p class="status-text">{{ stateLabel }}</p>
   </div>
 </template>
@@ -129,6 +141,26 @@ watch(
   to {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+
+.mouth {
+  position: absolute;
+  width: 60px;
+  height: 40px;
+  bottom: 50px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10;
+  animation: talk 0.4s ease-in-out infinite;
+}
+
+@keyframes talk {
+  0%, 100% {
+    transform: translateX(-50%) scaleY(0.6);
+  }
+  50% {
+    transform: translateX(-50%) scaleY(1);
   }
 }
 </style>
