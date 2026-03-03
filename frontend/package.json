@@ -9,8 +9,9 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "vue": "^3.4.0",
-    "lottie-web": "^5.12.2"
+    "compromise": "^14.15.0",
+    "three": "^0.183.2",
+    "vue": "^3.4.0"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^5.0.0",

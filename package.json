@@ -8,7 +8,8 @@
     "dev": "concurrently \"npm run server\" \"npm run client\"",
     "server": "node backend/index.js",
     "client": "cd frontend && npm run dev",
-    "test:backend": "curl -s -X POST http://localhost:3000/api/chat -H \"Content-Type: application/json\" -d '{\"message\":\"Hello Teddy!\",\"history\":[]}' | jq ."
+    "test:backend": "curl -s -X POST http://localhost:3000/api/chat -H \"Content-Type: application/json\" -d '{\"message\":\"Hello Teddy!\",\"history\":[]}' | jq .",
+    "bench:model": "node backend/scripts/benchmark-models.js"
   },
   "keywords": [],
   "author": "",

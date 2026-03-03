@@ -1,70 +1,78 @@
 <template>
-  <div class="app-container">
-    <!-- Main Chat Interface -->
-    <div v-if="!showDashboard" class="chat-interface">
-      <!-- Header -->
-      <div class="app-header">
-        <h1>🧸 Teddy</h1>
-        <div v-if="sessionPhase === 'practicing'" class="session-info">
-          <span class="stat">⏱ {{ formatTime(sessionStats.duration) }}</span>
-          <span class="stat">💬 {{ sessionStats.exchanges }}</span>
+  <div class="page-bg" :class="`theme-${themeMode}`">
+    <div v-if="!showDashboard" class="app-shell">
+      <header class="top-bar">
+        <div class="brand-wrap">
+          <div class="brand-icon">🧸</div>
+          <div>
+            <h1 class="brand-title">Teddy</h1>
+            <p class="brand-subtitle">Friendly English buddy</p>
+          </div>
         </div>
-        <button v-if="sessionPhase === 'practicing'" class="end-session-btn" @click="endSession">
-          End
-        </button>
-      </div>
 
-      <!-- Main Content -->
-      <div class="main-content">
-        <!-- Teddy Face -->
-        <div class="teddy-section">
+        <div class="top-right">
+          <button class="theme-btn" @click="toggleTheme">
+            {{ themeMode === 'warm' ? '🌙 Night' : '☀️ Warm' }}
+          </button>
+          <div v-if="sessionPhase === 'practicing'" class="stats-pills">
+            <span class="stat-pill">⏱ {{ formatTime(sessionStats.duration) }}</span>
+            <span class="stat-pill">💬 {{ sessionStats.exchanges }} turns</span>
+          </div>
+          <button v-if="sessionPhase === 'practicing'" class="end-btn" @click="endSession">End Session</button>
+        </div>
+      </header>
+
+      <main class="main-grid">
+        <section class="teddy-panel">
           <TeddyFace :state="animationState" />
-        </div>
+          <div class="teddy-state-chip" :class="animationState">
+            {{ teddyStatusText }}
+          </div>
+        </section>
 
-        <!-- Content Area: depends on phase -->
-        <div class="content-area">
-          <!-- Idle Phase: Show Start Button -->
-          <div v-if="sessionPhase === 'idle'" class="idle-screen">
-            <div class="idle-content">
-              <h2>Ready to practice English? 🎉</h2>
-              <p>Talk to Teddy and improve your skills!</p>
+        <section class="content-panel">
+          <div v-if="error" class="error-banner">
+            <span>{{ error }}</span>
+            <button @click="error = ''" class="error-close">✕</button>
+          </div>
+
+          <transition name="panel-switch" mode="out-in">
+            <div v-if="sessionPhase === 'idle'" key="idle" class="welcome-panel">
+              <p class="kicker">Speak. Learn. Smile.</p>
+              <h2>Ready to practice English with Teddy?</h2>
+              <p>
+                Press start and talk naturally. Teddy listens, responds, and gently helps with grammar.
+              </p>
               <button class="start-btn" @click="startSession" :disabled="isLoading">
-                <span v-if="!isLoading">🎤 START TALKING</span>
+                <span v-if="!isLoading">🎙 Start Talking</span>
                 <span v-else>Loading...</span>
               </button>
             </div>
-          </div>
-
-          <!-- Practicing Phase: Show Chat Bubbles -->
-          <ChatBubbles 
-            v-else-if="sessionPhase === 'practicing'"
-            :history="displayHistory"
-          />
-        </div>
-      </div>
-
-      <!-- Bottom Controls -->
-      <div class="controls">
-        <!-- Practicing Phase: Show Mic Button -->
-        <MicButton 
-          v-if="sessionPhase === 'practicing'"
-          :state="micState" 
-          :disabled="!canTalk" 
-          @start-recording="startRecording" 
-          @stop-recording="stopRecording" 
-        />
-
-        <!-- Error Message -->
-        <div v-if="error" class="error-message">
-          {{ error }}
-          <button @click="error = ''" class="error-close">✕</button>
-        </div>
-      </div>
+            <div v-else key="practice" class="practice-panel">
+              <div class="chat-frame">
+                <ChatBubbles :history="displayHistory" />
+              </div>
+              <div class="controls-panel">
+                <MicButton
+                  :state="micState"
+                  :disabled="!canTalk"
+                  @start-recording="startRecording"
+                  @stop-recording="stopRecording"
+                />
+              </div>
+            </div>
+          </transition>
+        </section>
+      </main>
     </div>
 
-    <!-- Parent Dashboard -->
     <div v-else class="dashboard-overlay">
-      <ParentDashboard :session-stats="sessionStats" @close="showDashboard = false" @new-session="startNewSession" @exit="exit" />
+      <ParentDashboard
+        :session-stats="sessionStats"
+        @close="showDashboard = false"
+        @new-session="startNewSession"
+        @exit="exit"
+      />
     </div>
   </div>
 </template>
@@ -76,17 +84,16 @@ import MicButton from './components/MicButton.vue';
 import ChatBubbles from './components/ChatBubbles.vue';
 import ParentDashboard from './components/ParentDashboard.vue';
 
-// API Configuration
 const API_URL = 'http://localhost:3000/api/chat';
 
-// State
 const history = ref([]);
-const sessionPhase = ref('idle'); // idle or practicing
-const animationState = ref('idle'); // Animation state: idle, listening, speaking (separate from sessionPhase)
+const sessionPhase = ref('idle');
+const animationState = ref('idle');
 const showDashboard = ref(false);
 const error = ref('');
-const selectedTopic = ref(null); // Store selected topic: daily-life, adventure, hobbies
+const selectedTopic = ref(null);
 const isLoading = ref(false);
+const themeMode = ref(localStorage.getItem('teddy_theme') || 'warm');
 const sessionStats = reactive({
   duration: 0,
   exchanges: 0,
@@ -94,13 +101,13 @@ const sessionStats = reactive({
   mistakes: [],
 });
 
-// Web Speech API
 let recognition = null;
 let synthesis = null;
 let sessionStartTime = null;
 let updateTimer = null;
+let nlpLib = null;
+let nlpImportPromise = null;
 
-// Initialize Web Speech API
 onMounted(() => {
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   const SpeechSynthesis = window.speechSynthesis;
@@ -118,6 +125,7 @@ onMounted(() => {
   recognition = new SpeechRecognition();
   synthesis = SpeechSynthesis;
 
+  // Keep recognition single-shot to match press-to-talk UX.
   recognition.continuous = false;
   recognition.interimResults = false;
   recognition.lang = 'en-US';
@@ -128,7 +136,7 @@ onMounted(() => {
 
   recognition.onresult = (event) => {
     let transcript = '';
-    for (let i = event.resultIndex; i < event.results.length; i++) {
+    for (let i = event.resultIndex; i < event.results.length; i += 1) {
       transcript += event.results[i][0].transcript;
     }
 
@@ -155,7 +163,6 @@ onUnmounted(() => {
   if (synthesis) synthesis.cancel();
 });
 
-// Computed
 const canTalk = computed(() => {
   return animationState.value === 'idle' && sessionPhase.value === 'practicing' && !showDashboard.value;
 });
@@ -173,20 +180,27 @@ const displayHistory = computed(() => {
   }));
 });
 
-// Methods
+const teddyStatusText = computed(() => {
+  if (animationState.value === 'listening') return '👂 Teddy is listening';
+  if (animationState.value === 'speaking') return '💬 Teddy is talking';
+  if (sessionPhase.value === 'practicing') return '✨ Your turn to speak';
+  return '🌟 Ready for a new session';
+});
 
-// Phase 1: User clicks "Start Learning" button → Jump directly to practicing
+const toggleTheme = () => {
+  themeMode.value = themeMode.value === 'warm' ? 'night' : 'warm';
+  localStorage.setItem('teddy_theme', themeMode.value);
+};
+
 const startSession = async () => {
-  selectedTopic.value = null; // Will be auto-detected from first response
+  selectedTopic.value = null;
   sessionPhase.value = 'practicing';
   animationState.value = 'idle';
   isLoading.value = false;
 
-  // Initialize session timer
   sessionStartTime = Date.now();
   updateTimer = setInterval(updateSessionDuration, 1000);
 
-  // Fetch Teddy's first greeting from Gemini
   try {
     animationState.value = 'speaking';
     const response = await fetch(API_URL, {
@@ -207,14 +221,12 @@ const startSession = async () => {
     const data = await response.json();
     const teddyGreeting = data.reply;
 
-    // Add Teddy's greeting to history
     history.value.push({
       role: 'model',
       parts: [{ text: teddyGreeting }],
       text: teddyGreeting,
     });
 
-    // Speak the greeting
     await new Promise((resolve) => {
       speakReply(teddyGreeting, resolve);
     });
@@ -226,27 +238,25 @@ const startSession = async () => {
   }
 };
 
-// Format time helper
 const formatTime = (seconds) => {
   const mins = Math.floor(seconds / 60);
   const secs = seconds % 60;
   return `${mins}:${secs.toString().padStart(2, '0')}`;
 };
 
-// Helper: Detect topic from user's response
 const detectTopicFromResponse = (userText) => {
   const lowerText = userText.toLowerCase();
   const keywords = {
     'daily-life': ['school', 'home', 'family', 'breakfast', 'lunch', 'dinner', 'morning', 'day', 'routine', 'homework', 'bed', 'friend', 'play'],
-    'adventure': ['adventure', 'travel', 'trip', 'place', 'go', 'went', 'visit', 'explore', 'mountain', 'beach', 'city'],
-    'hobbies': ['hobby', 'like', 'enjoy', 'fun', 'play', 'game', 'sport', 'music', 'read', 'draw', 'sing', 'dance'],
+    adventure: ['adventure', 'travel', 'trip', 'place', 'go', 'went', 'visit', 'explore', 'mountain', 'beach', 'city'],
+    hobbies: ['hobby', 'like', 'enjoy', 'fun', 'play', 'game', 'sport', 'music', 'read', 'draw', 'sing', 'dance'],
   };
 
   let bestMatch = 'daily-life';
   let maxMatches = 0;
 
   for (const [topic, words] of Object.entries(keywords)) {
-    const matches = words.filter(w => lowerText.includes(w)).length;
+    const matches = words.filter((word) => lowerText.includes(word)).length;
     if (matches > maxMatches) {
       maxMatches = matches;
       bestMatch = topic;
@@ -256,7 +266,6 @@ const detectTopicFromResponse = (userText) => {
   return bestMatch;
 };
 
-// Handle user message during practice
 const startRecording = () => {
   if (!recognition) return;
   recognition.start();
@@ -270,29 +279,26 @@ const stopRecording = () => {
 const handleUserMessage = async (userText) => {
   if (!userText.trim()) return;
 
-  // Auto-detect topic on first user message
   if (!selectedTopic.value) {
     selectedTopic.value = detectTopicFromResponse(userText);
   }
 
-  // Add user message to history
   history.value.push({
     role: 'user',
     parts: [{ text: userText }],
     text: userText,
   });
 
-  sessionStats.exchanges++;
+  sessionStats.exchanges += 1;
   animationState.value = 'thinking';
 
   try {
-    // Call backend API with topic context
     const response = await fetch(API_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         message: userText,
-        history: history.value.slice(0, -1), // Exclude current message
+        history: history.value.slice(0, -1),
         topic: selectedTopic.value,
         isFirstMessage: false,
       }),
@@ -305,18 +311,15 @@ const handleUserMessage = async (userText) => {
     const data = await response.json();
     const teddyReply = data.reply;
 
-    // Add Teddy's reply to history
     history.value.push({
       role: 'model',
       parts: [{ text: teddyReply }],
       text: teddyReply,
     });
 
-    // Extract topics and detect grammar corrections
+    // Session insights shown in ParentDashboard.
     extractTopics(userText);
-    detectMistakes(teddyReply, userText);
-
-    // Speak Teddy's reply
+    detectMistakes(teddyReply);
     speakReply(teddyReply);
   } catch (err) {
     error.value = `Error: ${err.message}`;
@@ -324,9 +327,41 @@ const handleUserMessage = async (userText) => {
   }
 };
 
+const loadNlp = async () => {
+  if (nlpLib) return nlpLib;
+  if (!nlpImportPromise) {
+    // Lazy-load NLP only when Teddy speaks, to keep initial bundle lighter.
+    nlpImportPromise = import('compromise')
+      .then((module) => module.default || module)
+      .then((loadedNlp) => {
+        nlpLib = loadedNlp;
+        return loadedNlp;
+      });
+  }
+  return nlpImportPromise;
+};
+
+const formatTextForSpeech = async (rawText) => {
+  const baseText = String(rawText || '').replace(/\s+/g, ' ').trim();
+  if (!baseText) return '';
+
+  const nlp = await loadNlp();
+  const doc = nlp(baseText);
+  const normalizedText = doc.normalize({
+    whitespace: true,
+    punctuation: true,
+    case: false,
+  }).text();
+
+  return normalizedText
+    .replace(/([.?!])\s*/g, '$1 ')
+    .replace(/\s+(and|but|so|because)\s+/gi, ', $1, ')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+};
+
 const speakReply = (text, onEnd = null) => {
   if (!synthesis) {
-    console.error('Speech Synthesis not available');
     if (onEnd) onEnd();
     return;
   }
@@ -334,50 +369,40 @@ const speakReply = (text, onEnd = null) => {
   synthesis.cancel();
   animationState.value = 'speaking';
 
-  const utterance = new SpeechSynthesisUtterance(text);
-  utterance.rate = 0.9; // Slightly slower for clarity
-  utterance.pitch = 1.2; // Higher pitch to sound friendlier
-  utterance.volume = 1;
-  utterance.lang = 'en-US';
+  formatTextForSpeech(text)
+    .catch(() => String(text || ''))
+    .then((speechText) => {
+      const utterance = new SpeechSynthesisUtterance(speechText || text);
+      utterance.rate = 0.9;
+      utterance.pitch = 1.2;
+      utterance.volume = 1;
+      utterance.lang = 'en-US';
 
-  // Try to find a good English voice, preferably female/child-friendly
-  const voices = synthesis.getVoices();
-  console.log(`Available voices: ${voices.length}`, voices);
-  
-  if (voices.length > 0) {
-    // Prefer female English voices (usually have "female" or higher naturally in pitch)
-    let selectedVoice = voices.find(v => v.lang.includes('en-US') && v.name.includes('Female'));
-    if (!selectedVoice) selectedVoice = voices.find(v => v.lang.includes('en-US'));
-    if (!selectedVoice) selectedVoice = voices.find(v => v.lang.includes('en'));
-    if (!selectedVoice) selectedVoice = voices[0];
-    
-    utterance.voice = selectedVoice;
-    console.log(`Selected voice: ${selectedVoice.name} (${selectedVoice.lang})`);
-  }
+      const voices = synthesis.getVoices();
+      if (voices.length > 0) {
+        let selectedVoice = voices.find((voice) => voice.lang.includes('en-US') && voice.name.includes('Female'));
+        if (!selectedVoice) selectedVoice = voices.find((voice) => voice.lang.includes('en-US'));
+        if (!selectedVoice) selectedVoice = voices.find((voice) => voice.lang.includes('en'));
+        if (!selectedVoice) selectedVoice = voices[0];
+        utterance.voice = selectedVoice;
+      }
 
-  utterance.onstart = () => {
-    console.log('Speech started:', text.substring(0, 50) + '...');
-  };
+      utterance.onend = () => {
+        animationState.value = 'idle';
+        if (onEnd) onEnd();
+      };
 
-  utterance.onend = () => {
-    console.log('Speech ended');
-    animationState.value = 'idle';
-    if (onEnd) onEnd();
-  };
+      utterance.onerror = (event) => {
+        error.value = `Speech synthesis error: ${event.error}`;
+        animationState.value = 'idle';
+        if (onEnd) onEnd();
+      };
 
-  utterance.onerror = (event) => {
-    console.error('Speech synthesis error:', event.error);
-    error.value = `Speech synthesis error: ${event.error}`;
-    animationState.value = 'idle';
-    if (onEnd) onEnd();
-  };
-
-  synthesis.speak(utterance);
-  console.log('Speech queued');
+      synthesis.speak(utterance);
+    });
 };
 
 const extractTopics = (userText) => {
-  // Simple topic extraction: look for common nouns and keywords
   const words = userText.toLowerCase().split(/\s+/);
   const commonTopics = ['park', 'school', 'game', 'food', 'dog', 'cat', 'friend', 'home', 'play', 'book', 'movie', 'sport'];
 
@@ -388,8 +413,7 @@ const extractTopics = (userText) => {
   });
 };
 
-const detectMistakes = (teddyReply, userText) => {
-  // Simple mistake detection: look for correction patterns in Teddy's response
+const detectMistakes = (teddyReply) => {
   const patterns = [/you\s+(say|said|want)\s+(.+?),?\s+not\s+(.+?)[\.\?!]/gi, /it'?s?\s+(.+?),?\s+not\s+(.+?)[\.\?!]/gi];
 
   patterns.forEach((pattern) => {
@@ -441,282 +465,391 @@ const exit = () => {
 </script>
 
 <style scoped>
-.app-container {
+@import url('https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;700;800&family=Nunito:wght@500;600;700&display=swap');
+
+.page-bg {
+  --ui-page-bg:
+    radial-gradient(circle at 20% 20%, rgba(255, 223, 187, 0.6), transparent 35%),
+    radial-gradient(circle at 90% 10%, rgba(255, 183, 120, 0.35), transparent 28%),
+    linear-gradient(160deg, #fff7ef 0%, #ffeedd 45%, #ffd9b3 100%);
+  --ui-text: #402515;
+  --ui-shell-bg: rgba(255, 255, 255, 0.78);
+  --ui-shell-border: rgba(162, 100, 46, 0.18);
+  --ui-shell-shadow: rgba(144, 84, 36, 0.18);
+  --ui-topbar-bg: linear-gradient(120deg, #d97a2f 0%, #bc5f20 45%, #8f4317 100%);
+  --ui-topbar-text: #fff9f3;
+  --ui-accent: #b85f23;
+  --ui-accent-strong: #904115;
+  --ui-soft-surface: rgba(255, 255, 255, 0.84);
+  --ui-soft-border: rgba(157, 91, 43, 0.16);
+  --ui-chat-surface: #fffaf4;
+  --ui-primary: #d4772a;
+  --ui-primary-dark: #aa551f;
+  --ui-primary-soft: #ffeed9;
+  min-height: 100vh;
   width: 100%;
-  height: 100vh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 20px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  position: relative;
-  overflow: hidden;
-}
-
-.app-container::before {
-  content: '';
-  position: absolute;
-  top: -50%;
-  right: -50%;
-  width: 100%;
-  height: 100%;
-  background: radial-gradient(circle, rgba(255, 255, 255, 0.1) 0%, transparent 70%);
-  pointer-events: none;
-}
-
-.chat-interface {
-  width: 100%;
-  max-width: 900px;
-  height: 100%;
-  max-height: 900px;
-  display: flex;
-  flex-direction: column;
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.98) 0%, rgba(250, 250, 250, 0.95) 100%);
-  border-radius: 28px;
-  box-shadow: 
-    0 25px 50px rgba(0, 0, 0, 0.2),
-    0 0 1px rgba(0, 0, 0, 0.1);
-  overflow: hidden;
-  position: relative;
-  z-index: 1;
-  backdrop-filter: blur(10px);
-}
-
-.app-header {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
-  padding: 24px 28px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
-}
-
-.app-header h1 {
-  margin: 0;
-  font-size: 28px;
-  font-weight: 700;
-  letter-spacing: -0.5px;
-  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
-}
-
-.end-session-btn {
-  background: rgba(255, 255, 255, 0.15);
-  color: white;
-  border: 2px solid rgba(255, 255, 255, 0.3);
-  padding: 10px 20px;
-  border-radius: 24px;
-  cursor: pointer;
-  font-size: 13px;
-  font-weight: 700;
-  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
-  letter-spacing: 0.3px;
-  backdrop-filter: blur(5px);
-}
-
-.end-session-btn:hover {
-  background: rgba(255, 255, 255, 0.25);
-  border-color: white;
-  transform: scale(1.05);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-}
-
-.main-content {
-  flex: 1;
-  display: flex;
-  gap: 24px;
   padding: 24px;
+  background: var(--ui-page-bg);
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  font-family: 'Nunito', sans-serif;
+  color: var(--ui-text);
+}
+
+.page-bg.theme-night {
+  --ui-page-bg:
+    radial-gradient(circle at 12% 18%, rgba(255, 170, 97, 0.16), transparent 28%),
+    radial-gradient(circle at 90% 10%, rgba(121, 138, 255, 0.2), transparent 30%),
+    linear-gradient(155deg, #171723 0%, #1f1c2f 56%, #2f2338 100%);
+  --ui-text: #fce6d5;
+  --ui-shell-bg: rgba(27, 23, 35, 0.8);
+  --ui-shell-border: rgba(255, 177, 110, 0.18);
+  --ui-shell-shadow: rgba(8, 6, 14, 0.5);
+  --ui-topbar-bg: linear-gradient(120deg, #7c3f17 0%, #5b2f17 45%, #3a1d17 100%);
+  --ui-topbar-text: #ffe8d8;
+  --ui-accent: #ffae6a;
+  --ui-accent-strong: #f5904f;
+  --ui-soft-surface: rgba(42, 34, 48, 0.74);
+  --ui-soft-border: rgba(255, 173, 107, 0.2);
+  --ui-chat-surface: #352d3e;
+  --ui-primary: #e59452;
+  --ui-primary-dark: #b9642f;
+  --ui-primary-soft: #4a3942;
+}
+
+.app-shell {
+  width: min(1320px, 100%);
+  min-height: calc(100vh - 48px);
+  background: var(--ui-shell-bg);
+  border: 1px solid var(--ui-shell-border);
+  border-radius: 34px;
+  backdrop-filter: blur(14px);
+  box-shadow: 0 24px 70px var(--ui-shell-shadow);
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
 }
 
-.teddy-section {
-  flex: 0 0 auto;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  min-width: 320px;
-  background: linear-gradient(135deg, rgba(102, 126, 234, 0.08) 0%, rgba(118, 75, 162, 0.08) 100%);
-  border-radius: 24px;
-  padding: 20px;
-  border: 2px solid rgba(102, 126, 234, 0.1);
-}
-
-.content-area {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow-y: auto;
-  padding: 20px;
-  border-radius: 16px;
-  background: linear-gradient(135deg, rgba(248, 248, 255, 0.5) 0%, rgba(240, 240, 255, 0.3) 100%);
-}
-
-.idle-screen {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 30px;
-  text-align: center;
-  animation: fade-in 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
-  padding: 40px 30px;
-}
-
-.idle-content {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 20px;
-}
-
-.idle-screen h2 {
-  font-size: 32px;
-  font-weight: 800;
-  color: #333;
-  margin: 0;
-  letter-spacing: -0.8px;
-  background: linear-gradient(135deg, #667eea, #764ba2);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-  line-height: 1.2;
-}
-
-.idle-screen p {
-  font-size: 18px;
-  color: #666;
-  margin: 0;
-  max-width: 350px;
-  line-height: 1.6;
-  font-weight: 500;
-}
-
-.start-btn {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
-  border: none;
-  padding: 20px 50px;
-  border-radius: 28px;
-  font-size: 20px;
-  font-weight: 800;
-  cursor: pointer;
-  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
-  box-shadow: 0 10px 30px rgba(102, 126, 234, 0.35);
-  letter-spacing: 0.8px;
-  min-width: 240px;
-  text-transform: uppercase;
-}
-
-.start-btn:hover:not(:disabled) {
-  transform: translateY(-6px);
-  box-shadow: 0 16px 40px rgba(102, 126, 234, 0.45);
-}
-
-.start-btn:active:not(:disabled) {
-  transform: translateY(-2px);
-}
-
-.start-btn:disabled {
-  opacity: 0.75;
-  cursor: not-allowed;
-}
-
-@keyframes fade-in {
-  from {
-    opacity: 0;
-    transform: translateY(10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.controls {
-  padding: 24px;
-  border-top: 1px solid rgba(0, 0, 0, 0.08);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 16px;
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.8) 0%, rgba(248, 248, 252, 0.6) 100%);
-  backdrop-filter: blur(10px);
-}
-
-.error-message {
-  background: linear-gradient(135deg, #ffcdd2 0%, #ffb3ba 100%);
-  color: #b71c1c;
-  padding: 14px 18px;
-  border-radius: 12px;
-  font-size: 13px;
-  font-weight: 600;
+.top-bar {
+  padding: 18px 24px;
+  background: var(--ui-topbar-bg);
+  color: var(--ui-topbar-text);
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 14px;
+}
+
+.brand-wrap {
+  display: flex;
+  align-items: center;
   gap: 12px;
-  width: 100%;
-  max-width: 400px;
-  box-shadow: 0 4px 12px rgba(179, 28, 28, 0.2);
-  border-left: 4px solid #b71c1c;
-  animation: slide-in 0.3s ease-out;
 }
 
-@keyframes slide-in {
-  from {
-    opacity: 0;
-    transform: translateX(-20px);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
+.brand-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.2);
+  display: grid;
+  place-items: center;
+  font-size: 23px;
+}
+
+.brand-title {
+  margin: 0;
+  font-family: 'Baloo 2', cursive;
+  font-size: 40px;
+  line-height: 1;
+}
+
+.brand-subtitle {
+  margin: 0;
+  font-size: 13px;
+  opacity: 0.92;
+}
+
+.top-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.theme-btn {
+  border: 1px solid rgba(255, 255, 255, 0.26);
+  background: rgba(255, 255, 255, 0.1);
+  color: inherit;
+  border-radius: 999px;
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+}
+
+.stats-pills {
+  display: flex;
+  gap: 8px;
+}
+
+.stat-pill {
+  background: rgba(255, 255, 255, 0.18);
+  padding: 8px 12px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.end-btn {
+  border: none;
+  border-radius: 999px;
+  padding: 10px 15px;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: #76310f;
+  background: #ffe0c8;
+  cursor: pointer;
+}
+
+.main-grid {
+  flex: 1;
+  display: grid;
+  grid-template-columns: minmax(330px, 460px) 1fr;
+  gap: 18px;
+  padding: 18px;
+  min-height: 0;
+}
+
+.teddy-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  position: relative;
+  z-index: 0;
+}
+
+.teddy-state-chip {
+  border-radius: 14px;
+  padding: 12px 14px;
+  font-size: 14px;
+  font-weight: 700;
+  border: 1px solid rgba(167, 95, 41, 0.24);
+  background: #fff6ea;
+}
+
+.teddy-state-chip.listening {
+  background: #fff2da;
+  border-color: rgba(231, 139, 44, 0.35);
+}
+
+.teddy-state-chip.speaking {
+  background: #ffe3d3;
+  border-color: rgba(221, 89, 47, 0.4);
+}
+
+.content-panel {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  background: var(--ui-soft-surface);
+  border: 1px solid var(--ui-soft-border);
+  border-radius: 26px;
+  padding: 18px;
+}
+
+.error-banner {
+  border-radius: 12px;
+  background: #ffe5e5;
+  color: #7b1f1f;
+  border: 1px solid #e8b2b2;
+  padding: 10px 12px;
+  font-size: 13px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
 }
 
 .error-close {
-  background: none;
   border: none;
-  color: #b71c1c;
+  background: transparent;
+  color: #7b1f1f;
   cursor: pointer;
-  font-size: 18px;
-  padding: 0;
-  transition: transform 0.2s;
+  font-size: 16px;
 }
 
-.error-close:hover {
-  transform: scale(1.2);
+.welcome-panel {
+  flex: 1;
+  border-radius: 18px;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--ui-chat-surface) 84%, #fff 16%) 0%, var(--ui-chat-surface) 100%);
+  border: 1px solid var(--ui-soft-border);
+  padding: 42px 34px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+  gap: 16px;
+}
+
+.kicker {
+  margin: 0;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-size: 12px;
+  font-weight: 800;
+  color: #ab5c24;
+}
+
+.welcome-panel h2 {
+  margin: 0;
+  font-family: 'Baloo 2', cursive;
+  font-size: clamp(36px, 4.8vw, 62px);
+  line-height: 0.95;
+  color: var(--ui-accent-strong);
+}
+
+.welcome-panel p {
+  margin: 0;
+  font-size: 19px;
+  line-height: 1.55;
+  max-width: 620px;
+  color: color-mix(in srgb, var(--ui-text) 78%, #ffffff 22%);
+}
+
+.start-btn {
+  margin-top: 8px;
+  border: none;
+  border-radius: 999px;
+  padding: 18px 42px;
+  min-width: 280px;
+  font-size: 24px;
+  font-weight: 800;
+  font-family: 'Baloo 2', cursive;
+  color: #fff8f0;
+  background: linear-gradient(120deg, var(--ui-primary) 0%, var(--ui-accent) 50%, var(--ui-accent-strong) 100%);
+  box-shadow: 0 14px 34px rgba(153, 73, 24, 0.3);
+  cursor: pointer;
+}
+
+.start-btn:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.practice-panel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.chat-frame {
+  flex: 1;
+  min-height: 0;
+  border-radius: 18px;
+  overflow: hidden;
+  border: 1px solid var(--ui-soft-border);
+  background: var(--ui-chat-surface);
+}
+
+.controls-panel {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 8px 2px;
 }
 
 .dashboard-overlay {
   width: 100%;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  position: relative;
-  z-index: 1;
+  min-height: calc(100vh - 48px);
+  display: grid;
+  place-items: center;
 }
 
-@media (max-width: 768px) {
-  .main-content {
-    flex-direction: column;
-    padding: 16px;
-    gap: 16px;
+.panel-switch-enter-active,
+.panel-switch-leave-active {
+  transition: opacity 0.24s ease, transform 0.24s ease;
+}
+
+.panel-switch-enter-from,
+.panel-switch-leave-to {
+  opacity: 0;
+  transform: translateY(8px);
+}
+
+@media (max-width: 1040px) {
+  .main-grid {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr;
+  }
+}
+
+@media (max-width: 700px) {
+  .page-bg {
+    padding: 12px;
   }
 
-  .teddy-section {
-    min-width: auto;
-    min-height: 180px;
+  .app-shell {
+    min-height: calc(100vh - 24px);
+    border-radius: 22px;
   }
 
-  .app-header h1 {
+  .top-bar {
+    padding: 14px;
+    flex-wrap: wrap;
+  }
+
+  .brand-title {
+    font-size: 30px;
+  }
+
+  .brand-subtitle {
+    display: none;
+  }
+
+  .top-right {
+    width: 100%;
+    justify-content: space-between;
+    flex-wrap: wrap;
+  }
+
+  .theme-btn {
+    order: -1;
+  }
+
+  .main-grid {
+    padding: 12px;
+    gap: 12px;
+  }
+
+  .content-panel {
+    padding: 12px;
+  }
+
+  .welcome-panel {
+    padding: 24px 18px;
+  }
+
+  .welcome-panel p {
+    font-size: 16px;
+  }
+
+  .start-btn {
+    width: 100%;
+    min-width: 0;
     font-size: 22px;
-  }
-
-  .chat-interface {
-    border-radius: 20px;
+    padding: 14px 22px;
   }
 }
 </style>

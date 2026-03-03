@@ -1,36 +1,36 @@
 <template>
-  <div class="mic-button-wrapper">
-    <!-- Waveform Visualization -->
-    <div v-if="state === 'listening'" class="waveform-container">
-      <div class="waveform" v-for="i in 5" :key="i" :style="{ animationDelay: `${i * 0.1}s` }"></div>
+  <div class="mic-wrap">
+    <div v-if="state === 'listening'" class="bars" aria-hidden="true">
+      <span v-for="i in 6" :key="i" class="bar" :style="{ animationDelay: `${i * 0.08}s` }"></span>
     </div>
 
     <button
-      class="mic-button"
+      class="mic-btn"
       :class="buttonClass"
+      :disabled="disabled"
       @mousedown="handleMouseDown"
       @mouseup="handleMouseUp"
       @mouseleave="handleMouseUp"
       @touchstart="handleMouseDown"
       @touchend="handleMouseUp"
-      :disabled="disabled"
     >
       <span v-if="state === 'idle'" class="icon">🎤</span>
-      <span v-else-if="state === 'listening'" class="icon pulse">🎤</span>
-      <span v-else-if="state === 'thinking'" class="icon spinner">✨</span>
+      <span v-else-if="state === 'listening'" class="icon">🎙️</span>
+      <span v-else class="icon spinner">⏳</span>
     </button>
-    <p class="mic-label">{{ labelText }}</p>
+
+    <p class="label">{{ labelText }}</p>
   </div>
 </template>
 
 <script setup>
-import { ref, computed } from 'vue';
+import { computed, ref } from 'vue';
 
 const props = defineProps({
   state: {
     type: String,
     default: 'idle',
-    validator: (v) => ['idle', 'listening', 'thinking'].includes(v),
+    validator: (value) => ['idle', 'listening', 'thinking'].includes(value),
   },
   disabled: {
     type: Boolean,
@@ -39,30 +39,22 @@ const props = defineProps({
 });
 
 const emit = defineEmits(['start-recording', 'stop-recording']);
-
 const isPressed = ref(false);
 
-const buttonClass = computed(() => {
-  return {
-    idle: props.state === 'idle' && !isPressed.value,
-    listening: props.state === 'listening',
-    thinking: props.state === 'thinking',
-    pressed: isPressed.value,
-  };
-});
+const buttonClass = computed(() => ({
+  idle: props.state === 'idle' && !isPressed.value,
+  listening: props.state === 'listening',
+  thinking: props.state === 'thinking',
+  pressed: isPressed.value,
+}));
 
 const labelText = computed(() => {
-  switch (props.state) {
-    case 'listening':
-      return '🔴 LISTENING...';
-    case 'thinking':
-      return '✨ THINKING...';
-    default:
-      return '🎤 TAP TO TALK';
-  }
+  if (props.state === 'listening') return 'Listening... release to send';
+  if (props.state === 'thinking') return 'Teddy is thinking...';
+  return 'Hold to talk';
 });
 
-const handleMouseDown = (e) => {
+const handleMouseDown = () => {
   if (props.disabled || props.state !== 'idle') return;
   isPressed.value = true;
   emit('start-recording');
@@ -76,166 +68,94 @@ const handleMouseUp = () => {
 </script>
 
 <style scoped>
-.mic-button-wrapper {
+.mic-wrap {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 20px;
-  position: relative;
+  gap: 10px;
 }
 
-.waveform-container {
+.bars {
+  height: 30px;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  height: 60px;
+  align-items: flex-end;
+  gap: 5px;
 }
 
-.waveform {
-  width: 6px;
-  height: 20px;
-  background: linear-gradient(180deg, #667eea, #764ba2);
-  border-radius: 3px;
-  animation: wave 0.6s ease-in-out infinite;
+.bar {
+  width: 5px;
+  border-radius: 8px;
+  background: linear-gradient(180deg, var(--ui-primary, #d4772a) 0%, var(--ui-primary-dark, #aa551f) 100%);
+  height: 10px;
+  animation: bar-jump 0.62s ease-in-out infinite;
 }
 
-@keyframes wave {
-  0%, 100% { height: 20px; }
-  50% { height: 60px; }
+@keyframes bar-jump {
+  0%, 100% { height: 8px; }
+  45% { height: 28px; }
 }
 
-.mic-button {
-  width: 160px;
-  height: 160px;
+.mic-btn {
+  width: 112px;
+  height: 112px;
   border-radius: 50%;
-  border: 4px solid white;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
-  font-size: 70px;
+  border: 3px solid color-mix(in srgb, var(--ui-primary-soft, #ffeed9) 70%, #ffffff 30%);
+  background: linear-gradient(140deg, var(--ui-primary, #d4772a) 0%, var(--ui-primary-dark, #aa551f) 100%);
+  color: #fff8f0;
+  font-size: 44px;
+  display: grid;
+  place-items: center;
   cursor: pointer;
-  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 
-    0 15px 40px rgba(102, 126, 234, 0.4),
-    0 0 0 0 rgba(102, 126, 234, 0.7);
-  position: relative;
-  overflow: hidden;
-  font-weight: bold;
+  box-shadow: 0 12px 28px rgba(144, 71, 24, 0.34);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
-.mic-button::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0));
-  pointer-events: none;
-  border-radius: 50%;
+.mic-btn.idle:hover:not(:disabled) {
+  transform: translateY(-2px);
 }
 
-.mic-button:hover:not(:disabled) {
-  transform: scale(1.08);
-  box-shadow: 
-    0 15px 40px rgba(102, 126, 234, 0.5),
-    0 0 0 0 rgba(102, 126, 234, 0.9);
+.mic-btn.listening {
+  background: linear-gradient(140deg, #eb5a4d 0%, #b5292f 100%);
+  box-shadow: 0 12px 32px rgba(184, 49, 55, 0.42);
+  animation: ring 1.2s infinite;
 }
 
-.mic-button.listening {
-  background: linear-gradient(135deg, #ff6b6b 0%, #ee5a6f 100%);
-  box-shadow: 
-    0 0 0 0 rgba(255, 107, 107, 0.7),
-    0 10px 30px rgba(255, 107, 107, 0.5);
-  animation: pulse-ring 1.5s infinite;
+.mic-btn.thinking {
+  background: linear-gradient(140deg, #d9a12f 0%, #a86f18 100%);
 }
 
-.mic-button.thinking {
-  background: linear-gradient(135deg, #ffa500 0%, #ff8c00 100%);
-  animation: spin-smooth 2s linear infinite;
+.mic-btn.pressed {
+  transform: scale(0.93);
 }
 
-.mic-button.pressed {
-  background: linear-gradient(135deg, #ff5252 0%, #ff3838 100%);
-  transform: scale(0.92);
-  box-shadow: 
-    0 5px 15px rgba(255, 107, 107, 0.4),
-    inset 0 2px 5px rgba(0, 0, 0, 0.2);
-}
-
-.mic-button:disabled {
-  opacity: 0.5;
+.mic-btn:disabled {
+  opacity: 0.55;
   cursor: not-allowed;
 }
 
-@keyframes pulse-ring {
-  0% {
-    box-shadow: 
-      0 0 0 0 rgba(255, 107, 107, 0.7),
-      0 10px 30px rgba(255, 107, 107, 0.5);
-  }
-  50% {
-    box-shadow: 
-      0 0 0 15px rgba(255, 107, 107, 0),
-      0 10px 30px rgba(255, 107, 107, 0.5);
-  }
-  100% {
-    box-shadow: 
-      0 0 0 0 rgba(255, 107, 107, 0),
-      0 10px 30px rgba(255, 107, 107, 0.5);
-  }
+.label {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: color-mix(in srgb, var(--ui-text, #402515) 78%, #ffffff 22%);
 }
 
-@keyframes spin-smooth {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
+.spinner {
+  display: inline-block;
+  animation: spin 1.2s linear infinite;
 }
 
-.icon {
-  display: block;
-  animation: none;
-  position: relative;
-  z-index: 1;
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 
-.icon.pulse {
-  animation: pulse-icon 1s ease-in-out infinite;
-}
-
-.icon.spinner {
-  animation: spin-icon 1.5s linear infinite;
-}
-
-@keyframes pulse-icon {
+@keyframes ring {
   0%, 100% {
-    transform: scale(1);
+    box-shadow: 0 10px 28px rgba(184, 49, 55, 0.36), 0 0 0 0 rgba(213, 75, 62, 0.4);
   }
   50% {
-    transform: scale(1.15);
+    box-shadow: 0 10px 28px rgba(184, 49, 55, 0.36), 0 0 0 14px rgba(213, 75, 62, 0);
   }
-}
-
-@keyframes spin-icon {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-.mic-label {
-  color: white;
-  font-size: 14px;
-  font-weight: 600;
-  letter-spacing: 0.3px;
-  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
 }
 </style>
