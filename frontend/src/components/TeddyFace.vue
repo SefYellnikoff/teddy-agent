@@ -1,7 +1,8 @@
 <template>
   <div class="teddy-face">
     <div id="lottie-container" class="lottie-container">
-      <!-- SVG Mouth Overlay -->
+    </div>
+      <!-- SVG Mouth Overlay: placed as sibling so Lottie won't overwrite it -->
       <svg
         v-if="state === 'speaking'"
         class="mouth"
@@ -12,7 +13,6 @@
         <ellipse cx="50" cy="35" rx="20" ry="18" fill="#333" />
         <ellipse cx="50" cy="32" rx="20" ry="12" fill="#ff9999" />
       </svg>
-    </div>
     <p class="status-text">{{ stateLabel }}</p>
   </div>
 </template>
@@ -74,6 +74,7 @@ watch(
   align-items: center;
   justify-content: center;
   gap: 20px;
+  position: relative;
 }
 
 .lottie-container {
@@ -148,8 +149,9 @@ watch(
   position: absolute;
   width: 60px;
   height: 40px;
-  bottom: 50px;
-  left: 50%;
+  /* position over the bottom-center of the lottie container */
+  bottom: 120px;
+  left: calc(50% - 30px);
   transform: translateX(-50%);
   z-index: 10;
   animation: talk 0.4s ease-in-out infinite;
