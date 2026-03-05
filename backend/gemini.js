@@ -178,6 +178,30 @@ Do not explain anything yet.`;
   return topicPrompt;
 }
 
+function buildChildProfilePrompt(childProfile = null) {
+  if (!childProfile || typeof childProfile !== 'object') return '';
+
+  const profileLines = [];
+  if (childProfile.childName) {
+    profileLines.push(`Child name: ${childProfile.childName}.`);
+  }
+  if (childProfile.ageGroup) {
+    profileLines.push(`Age group: ${childProfile.ageGroup}.`);
+  }
+  if (childProfile.englishLevel) {
+    profileLines.push(`English level: ${childProfile.englishLevel}.`);
+  }
+  if (childProfile.sessionMinutes) {
+    profileLines.push(`Suggested session length: ${childProfile.sessionMinutes} minutes.`);
+  }
+
+  if (!profileLines.length) return '';
+
+  return `Personalization profile:
+${profileLines.join('\n')}
+Use this profile only to adapt tone and examples. Never ask for personal data.`;
+}
+
 function extractUsageMetadata(response) {
   if (!response || typeof response !== 'object') return {};
   const usage = response.usageMetadata || {};
@@ -244,12 +268,15 @@ async function getTeddyReplyDetailed({
   topic = 'daily-life',
   isFirstMessage = false,
   model = ACTIVE_MODEL_NAME,
+  childProfile = null,
 }) {
   const startedAt = Date.now();
   const candidateModels = getCandidateModels(model);
   let usedModel = candidateModels[0];
   try {
-    const systemPromptText = buildSystemPrompt(topic, isFirstMessage || message === '[START_SESSION]');
+    const promptBase = buildSystemPrompt(topic, isFirstMessage || message === '[START_SESSION]');
+    const profilePrompt = buildChildProfilePrompt(childProfile);
+    const systemPromptText = [promptBase, profilePrompt].filter(Boolean).join('\n\n');
 
     const contents = (isFirstMessage || message === '[START_SESSION]')
       ? [{ role: 'user', parts: [{ text: 'Hello Teddy!' }] }]

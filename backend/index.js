@@ -3,6 +3,7 @@ const express = require('express');
 const cors = require('cors');
 const { getTeddyReplyDetailed, previewSanitizedReply, getActiveModelName } = require('./gemini');
 const { getAvailableModels, getDefaultModels, runBenchmark } = require('./benchmark');
+const { readProfile, saveProfile } = require('./profileStore');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -26,10 +27,48 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok' });
 });
 
+app.get('/api/profile', (req, res) => {
+  const profile = readProfile();
+  return res.json({ profile });
+});
+
+app.post('/api/profile', (req, res) => {
+  const { childName, ageGroup, englishLevel, sessionMinutes } = req.body || {};
+
+  if (!childName || typeof childName !== 'string' || !childName.trim()) {
+    return res.status(400).json({ error: 'childName is required' });
+  }
+
+  const allowedAgeGroups = ['6-7', '8-10'];
+  const allowedLevels = ['beginner', 'elementary'];
+
+  if (!allowedAgeGroups.includes(String(ageGroup || ''))) {
+    return res.status(400).json({ error: 'ageGroup must be one of: 6-7, 8-10' });
+  }
+  if (!allowedLevels.includes(String(englishLevel || ''))) {
+    return res.status(400).json({ error: 'englishLevel must be one of: beginner, elementary' });
+  }
+
+  const parsedMinutes = Number(sessionMinutes);
+  if (!Number.isFinite(parsedMinutes) || parsedMinutes < 5 || parsedMinutes > 30) {
+    return res.status(400).json({ error: 'sessionMinutes must be between 5 and 30' });
+  }
+
+  const profile = saveProfile({
+    childName,
+    ageGroup,
+    englishLevel,
+    sessionMinutes: parsedMinutes,
+  });
+
+  return res.json({ profile });
+});
+
 // Chat endpoint
 app.post('/api/chat', async (req, res) => {
   try {
     const { message, history = [], topic, isFirstMessage = false } = req.body;
+    const childProfile = readProfile();
 
     // Validate request
     if (!message || typeof message !== 'string') {
@@ -42,6 +81,7 @@ app.post('/api/chat', async (req, res) => {
       history,
       topic,
       isFirstMessage,
+      childProfile,
     });
     const { reply, meta } = result;
 

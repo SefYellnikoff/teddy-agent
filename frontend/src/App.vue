@@ -38,15 +38,58 @@
 
           <transition name="panel-switch" mode="out-in">
             <div v-if="sessionPhase === 'idle'" key="idle" class="welcome-panel">
-              <p class="kicker">Speak. Learn. Smile.</p>
-              <h2>Ready to practice English with Teddy?</h2>
-              <p>
-                Press start and talk naturally. Teddy listens, responds, and gently helps with grammar.
-              </p>
-              <button class="start-btn" @click="startSession" :disabled="isLoading">
-                <span v-if="!isLoading">🎙 Start Talking</span>
-                <span v-else>Loading...</span>
-              </button>
+              <div v-if="needsSetup" class="setup-panel">
+                <p class="kicker">Parent Setup</p>
+                <h2>Set up Teddy for your child</h2>
+                <p>Save a simple profile so Teddy can greet naturally and adapt language level.</p>
+
+                <div class="setup-grid">
+                  <label class="setup-field">
+                    <span>Child name</span>
+                    <input v-model="profileForm.childName" type="text" maxlength="30" placeholder="e.g. Luca" />
+                  </label>
+
+                  <label class="setup-field">
+                    <span>Age group</span>
+                    <select v-model="profileForm.ageGroup">
+                      <option value="6-7">6-7 years</option>
+                      <option value="8-10">8-10 years</option>
+                    </select>
+                  </label>
+
+                  <label class="setup-field">
+                    <span>English level</span>
+                    <select v-model="profileForm.englishLevel">
+                      <option value="beginner">Beginner</option>
+                      <option value="elementary">Elementary</option>
+                    </select>
+                  </label>
+
+                  <label class="setup-field">
+                    <span>Session length (minutes)</span>
+                    <input v-model.number="profileForm.sessionMinutes" type="number" min="5" max="30" step="1" />
+                  </label>
+                </div>
+
+                <p v-if="setupError" class="setup-error">{{ setupError }}</p>
+
+                <button class="start-btn" @click="saveParentSetup" :disabled="setupSaving">
+                  <span v-if="!setupSaving">Save Setup</span>
+                  <span v-else>Saving...</span>
+                </button>
+              </div>
+
+              <div v-else>
+                <p class="kicker">Speak. Learn. Smile.</p>
+                <h2>Ready to practice English with Teddy, {{ childDisplayName }}?</h2>
+                <p>
+                  Press start and talk naturally. Teddy listens, responds, and gently helps with grammar.
+                </p>
+                <button class="start-btn" @click="startSession" :disabled="isLoading">
+                  <span v-if="!isLoading">🎙 Start Talking</span>
+                  <span v-else>Loading...</span>
+                </button>
+              </div>
             </div>
             <div v-else key="practice" class="practice-panel">
               <div class="chat-frame">
@@ -86,6 +129,7 @@ import ChatBubbles from './components/ChatBubbles.vue';
 import ParentDashboard from './components/ParentDashboard.vue';
 
 const API_URL = 'http://localhost:3000/api/chat';
+const API_PROFILE_URL = 'http://localhost:3000/api/profile';
 
 const history = ref([]);
 const sessionPhase = ref('idle');
@@ -95,6 +139,16 @@ const error = ref('');
 const selectedTopic = ref(null);
 const isLoading = ref(false);
 const themeMode = ref(localStorage.getItem('teddy_theme') || 'warm');
+const childProfile = ref(null);
+const setupSaving = ref(false);
+const setupError = ref('');
+const needsSetup = ref(true);
+const profileForm = reactive({
+  childName: '',
+  ageGroup: '6-7',
+  englishLevel: 'beginner',
+  sessionMinutes: 10,
+});
 const sessionStats = reactive({
   duration: 0,
   exchanges: 0,
@@ -112,6 +166,10 @@ let nlpLib = null;
 let nlpImportPromise = null;
 
 onMounted(() => {
+  loadProfile().catch((loadError) => {
+    console.warn('Profile load failed:', loadError);
+  });
+
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   const SpeechSynthesis = window.speechSynthesis;
 
@@ -212,12 +270,81 @@ const teddyStatusText = computed(() => {
   return '🌟 Ready for a new session';
 });
 
+const childDisplayName = computed(() => {
+  return childProfile.value && childProfile.value.childName
+    ? childProfile.value.childName
+    : 'your child';
+});
+
+const applyProfile = (profile) => {
+  if (!profile) {
+    childProfile.value = null;
+    needsSetup.value = true;
+    return;
+  }
+
+  childProfile.value = profile;
+  needsSetup.value = false;
+  profileForm.childName = profile.childName || '';
+  profileForm.ageGroup = profile.ageGroup || '6-7';
+  profileForm.englishLevel = profile.englishLevel || 'beginner';
+  profileForm.sessionMinutes = Number(profile.sessionMinutes) || 10;
+};
+
+const loadProfile = async () => {
+  const response = await fetch(API_PROFILE_URL);
+  if (!response.ok) {
+    throw new Error(`Profile API error: ${response.status}`);
+  }
+  const data = await response.json();
+  applyProfile(data.profile || null);
+};
+
+const saveParentSetup = async () => {
+  setupError.value = '';
+
+  if (!profileForm.childName.trim()) {
+    setupError.value = 'Please enter your child name.';
+    return;
+  }
+
+  setupSaving.value = true;
+  try {
+    const response = await fetch(API_PROFILE_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        childName: profileForm.childName.trim(),
+        ageGroup: profileForm.ageGroup,
+        englishLevel: profileForm.englishLevel,
+        sessionMinutes: Number(profileForm.sessionMinutes),
+      }),
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.error || `Profile save error: ${response.status}`);
+    }
+
+    applyProfile(data.profile);
+  } catch (saveError) {
+    setupError.value = saveError.message || 'Failed to save setup.';
+  } finally {
+    setupSaving.value = false;
+  }
+};
+
 const toggleTheme = () => {
   themeMode.value = themeMode.value === 'warm' ? 'night' : 'warm';
   localStorage.setItem('teddy_theme', themeMode.value);
 };
 
 const startSession = async () => {
+  if (needsSetup.value) {
+    error.value = 'Please complete parent setup first.';
+    return;
+  }
+
   selectedTopic.value = null;
   sessionPhase.value = 'practicing';
   animationState.value = 'idle';
@@ -812,6 +939,60 @@ const exit = () => {
   color: color-mix(in srgb, var(--ui-text) 78%, #ffffff 22%);
 }
 
+.setup-panel {
+  width: min(760px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  align-items: center;
+}
+
+.setup-grid {
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.setup-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  text-align: left;
+  font-size: 14px;
+  font-weight: 700;
+  color: color-mix(in srgb, var(--ui-text) 88%, #ffffff 12%);
+}
+
+.setup-field input,
+.setup-field select {
+  width: 100%;
+  border: 1px solid var(--ui-soft-border);
+  border-radius: 12px;
+  padding: 12px 14px;
+  font-size: 16px;
+  font-family: inherit;
+  background: color-mix(in srgb, var(--ui-chat-surface) 86%, #ffffff 14%);
+  color: var(--ui-text);
+}
+
+.setup-field input:focus,
+.setup-field select:focus {
+  outline: 2px solid color-mix(in srgb, var(--ui-primary) 44%, #ffffff 56%);
+  outline-offset: 1px;
+}
+
+.setup-error {
+  margin: 0;
+  color: #8a1d1d;
+  background: #ffe3df;
+  border: 1px solid #efb9b1;
+  border-radius: 10px;
+  padding: 8px 12px;
+  font-size: 14px;
+  font-weight: 700;
+}
+
 .start-btn {
   margin-top: 8px;
   border: none;
@@ -929,6 +1110,10 @@ const exit = () => {
 
   .welcome-panel p {
     font-size: 16px;
+  }
+
+  .setup-grid {
+    grid-template-columns: 1fr;
   }
 
   .start-btn {
