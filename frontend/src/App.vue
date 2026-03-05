@@ -79,6 +79,7 @@
 
 <script setup>
 import { ref, reactive, computed, onMounted, onUnmounted } from 'vue';
+import Speech from 'speak-tts';
 import TeddyFace from './components/TeddyFace.vue';
 import MicButton from './components/MicButton.vue';
 import ChatBubbles from './components/ChatBubbles.vue';
@@ -103,6 +104,8 @@ const sessionStats = reactive({
 
 let recognition = null;
 let synthesis = null;
+let tts = null;
+let ttsReady = false;
 let sessionStartTime = null;
 let updateTimer = null;
 let nlpLib = null;
@@ -124,6 +127,7 @@ onMounted(() => {
 
   recognition = new SpeechRecognition();
   synthesis = SpeechSynthesis;
+  tts = new Speech();
 
   // Keep recognition single-shot to match press-to-talk UX.
   recognition.continuous = false;
@@ -155,6 +159,27 @@ onMounted(() => {
       animationState.value = 'idle';
     }
   };
+
+  if (tts.hasBrowserSupport()) {
+    tts.init({
+      volume: 1,
+      lang: 'en-US',
+      rate: 0.92,
+      pitch: 1.08,
+      splitSentences: false,
+    })
+      .then(() => {
+        const bestVoice = pickBestVoice();
+        if (bestVoice && bestVoice.name) {
+          tts.setVoice(bestVoice.name);
+        }
+        ttsReady = true;
+      })
+      .catch((initError) => {
+        console.warn('speak-tts init failed, using native fallback:', initError);
+        ttsReady = false;
+      });
+  }
 });
 
 onUnmounted(() => {
@@ -360,6 +385,65 @@ const formatTextForSpeech = async (rawText) => {
     .trim();
 };
 
+const scoreVoice = (voice = {}) => {
+  const name = String(voice.name || '').toLowerCase();
+  const lang = String(voice.lang || '').toLowerCase();
+  let score = 0;
+
+  if (lang.startsWith('en-us')) score += 6;
+  else if (lang.startsWith('en')) score += 4;
+  if (voice.localService) score += 2;
+  if (name.includes('natural')) score += 4;
+  if (name.includes('neural')) score += 3;
+  if (name.includes('samantha')) score += 5;
+  if (name.includes('aria')) score += 4;
+  if (name.includes('google us english')) score += 4;
+  if (name.includes('female')) score += 1;
+
+  return score;
+};
+
+const pickBestVoice = () => {
+  if (!synthesis) return null;
+  const voices = synthesis.getVoices() || [];
+  if (!voices.length) return null;
+
+  return voices
+    .slice()
+    .sort((a, b) => scoreVoice(b) - scoreVoice(a))[0];
+};
+
+const speakReplyNative = (text, onEnd = null) => {
+  if (!synthesis) {
+    if (onEnd) onEnd();
+    return;
+  }
+
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.rate = 0.92;
+  utterance.pitch = 1.08;
+  utterance.volume = 1;
+  utterance.lang = 'en-US';
+
+  const bestVoice = pickBestVoice();
+  if (bestVoice) {
+    utterance.voice = bestVoice;
+  }
+
+  utterance.onend = () => {
+    animationState.value = 'idle';
+    if (onEnd) onEnd();
+  };
+
+  utterance.onerror = (event) => {
+    error.value = `Speech synthesis error: ${event.error}`;
+    animationState.value = 'idle';
+    if (onEnd) onEnd();
+  };
+
+  synthesis.speak(utterance);
+};
+
 const speakReply = (text, onEnd = null) => {
   if (!synthesis) {
     if (onEnd) onEnd();
@@ -372,33 +456,35 @@ const speakReply = (text, onEnd = null) => {
   formatTextForSpeech(text)
     .catch(() => String(text || ''))
     .then((speechText) => {
-      const utterance = new SpeechSynthesisUtterance(speechText || text);
-      utterance.rate = 0.9;
-      utterance.pitch = 1.2;
-      utterance.volume = 1;
-      utterance.lang = 'en-US';
-
-      const voices = synthesis.getVoices();
-      if (voices.length > 0) {
-        let selectedVoice = voices.find((voice) => voice.lang.includes('en-US') && voice.name.includes('Female'));
-        if (!selectedVoice) selectedVoice = voices.find((voice) => voice.lang.includes('en-US'));
-        if (!selectedVoice) selectedVoice = voices.find((voice) => voice.lang.includes('en'));
-        if (!selectedVoice) selectedVoice = voices[0];
-        utterance.voice = selectedVoice;
+      const finalText = speechText || String(text || '');
+      if (!finalText.trim()) {
+        animationState.value = 'idle';
+        if (onEnd) onEnd();
+        return;
       }
 
-      utterance.onend = () => {
-        animationState.value = 'idle';
-        if (onEnd) onEnd();
-      };
+      if (!ttsReady || !tts) {
+        speakReplyNative(finalText, onEnd);
+        return;
+      }
 
-      utterance.onerror = (event) => {
-        error.value = `Speech synthesis error: ${event.error}`;
-        animationState.value = 'idle';
-        if (onEnd) onEnd();
-      };
-
-      synthesis.speak(utterance);
+      tts.speak({
+        text: finalText,
+        queue: false,
+        listeners: {
+          onend: () => {
+            animationState.value = 'idle';
+            if (onEnd) onEnd();
+          },
+          onerror: (speakError) => {
+            console.warn('speak-tts failed, fallback to native:', speakError);
+            speakReplyNative(finalText, onEnd);
+          },
+        },
+      }).catch((speakError) => {
+        console.warn('speak-tts promise failed, fallback to native:', speakError);
+        speakReplyNative(finalText, onEnd);
+      });
     });
 };
 

@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "compromise": "^14.15.0",
+    "speak-tts": "^2.0.8",
     "three": "^0.183.2",
     "vue": "^3.4.0"
   },
