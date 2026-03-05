@@ -6,29 +6,39 @@
           <div class="brand-icon">🧸</div>
           <div>
             <h1 class="brand-title">Teddy</h1>
-            <p class="brand-subtitle">Friendly English buddy</p>
+            <p class="brand-subtitle">Natural English companion</p>
           </div>
         </div>
 
         <div class="top-right">
+          <a class="ghost-link" href="http://localhost:3000/ux" target="_blank" rel="noopener noreferrer">UX Metrics</a>
           <button class="theme-btn" @click="toggleTheme">
-            {{ themeMode === 'warm' ? '🌙 Night' : '☀️ Warm' }}
+            {{ themeMode === 'warm' ? 'Night Mode' : 'Warm Mode' }}
           </button>
           <div v-if="sessionPhase === 'practicing'" class="stats-pills">
-            <span class="stat-pill">⏱ {{ formatTime(sessionStats.duration) }}</span>
-            <span class="stat-pill">💬 {{ sessionStats.exchanges }} turns</span>
+            <span class="stat-pill">Session {{ formatTime(sessionStats.duration) }}</span>
+            <span class="stat-pill">{{ sessionStats.exchanges }} turns</span>
           </div>
-          <button v-if="sessionPhase === 'practicing'" class="end-btn" @click="endSession">End Session</button>
+          <button v-if="sessionPhase === 'practicing'" class="end-btn" @click="endSession">End</button>
         </div>
       </header>
 
-      <main class="main-grid">
-        <section class="teddy-panel">
-          <TeddyFace :state="animationState" />
-          <div class="teddy-state-chip" :class="animationState">
-            {{ teddyStatusText }}
+      <main class="layout">
+        <aside class="stage-column">
+          <div class="stage-card">
+            <TeddyFace :state="animationState" />
           </div>
+          <div class="status-row">
+            <span class="state-pill" :class="animationState">{{ teddyStatusText }}</span>
+          </div>
+
           <div class="camera-card" :class="{ active: cameraEnabled }">
+            <div class="camera-head">
+              <strong>Live Vision</strong>
+              <button class="tiny-btn" @click="toggleCamera">
+                {{ cameraEnabled ? 'Disable' : 'Enable' }}
+              </button>
+            </div>
             <video
               ref="cameraVideoRef"
               class="camera-preview"
@@ -36,121 +46,129 @@
               muted
               playsinline
             ></video>
-            <div class="camera-meta">
-              <strong>Vision</strong>
-              <span>{{ cameraStatusText }}</span>
-            </div>
+            <p class="camera-status">{{ cameraStatusText }}</p>
           </div>
-        </section>
+        </aside>
 
-        <section class="content-panel">
+        <section class="workspace-column">
           <div v-if="error" class="error-banner">
             <span>{{ error }}</span>
             <button @click="error = ''" class="error-close">✕</button>
           </div>
 
           <transition name="panel-switch" mode="out-in">
-            <div v-if="sessionPhase === 'idle'" key="idle" class="welcome-panel">
-              <div v-if="needsSetup" class="setup-panel">
+            <section v-if="sessionPhase === 'idle'" key="idle" class="card">
+              <div v-if="needsSetup" class="setup-block">
                 <p class="kicker">Parent Setup</p>
-                <h2>Set up Teddy for your child</h2>
-                <p>Save a simple profile so Teddy can greet naturally and adapt language level.</p>
+                <h2>Personalize Teddy</h2>
+                <p class="subcopy">Set child profile once, then Teddy will adapt vocabulary and pacing automatically.</p>
 
                 <div class="setup-grid">
-                  <label class="setup-field">
+                  <label class="field">
                     <span>Child name</span>
                     <input v-model="profileForm.childName" type="text" maxlength="30" placeholder="e.g. Luca" />
                   </label>
-
-                  <label class="setup-field">
+                  <label class="field">
                     <span>Age group</span>
                     <select v-model="profileForm.ageGroup">
                       <option value="6-7">6-7 years</option>
                       <option value="8-10">8-10 years</option>
                     </select>
                   </label>
-
-                  <label class="setup-field">
+                  <label class="field">
                     <span>English level</span>
                     <select v-model="profileForm.englishLevel">
                       <option value="beginner">Beginner</option>
                       <option value="elementary">Elementary</option>
                     </select>
                   </label>
-
-                  <label class="setup-field">
-                    <span>Session length (minutes)</span>
+                  <label class="field">
+                    <span>Session minutes</span>
                     <input v-model.number="profileForm.sessionMinutes" type="number" min="5" max="30" step="1" />
                   </label>
                 </div>
 
                 <p v-if="setupError" class="setup-error">{{ setupError }}</p>
-
-                <button class="start-btn" @click="saveParentSetup" :disabled="setupSaving">
-                  <span v-if="!setupSaving">Save Setup</span>
-                  <span v-else>Saving...</span>
+                <button class="primary-btn" @click="saveParentSetup" :disabled="setupSaving">
+                  {{ setupSaving ? 'Saving...' : 'Save Setup' }}
                 </button>
               </div>
 
-              <div v-else>
-                <p class="kicker">Speak. Learn. Smile.</p>
-                <h2>Ready to practice English with Teddy, {{ childDisplayName }}?</h2>
-                <p>
-                  Press start and talk naturally. Teddy listens, responds, and gently helps with grammar.
-                </p>
-                <button class="start-btn" @click="startSession" :disabled="isLoading">
-                  <span v-if="!isLoading">🎙 Start Talking</span>
-                  <span v-else>Loading...</span>
+              <div v-else class="launch-block">
+                <p class="kicker">Ready</p>
+                <h2>Hello {{ childDisplayName }}, ready to chat with Teddy?</h2>
+                <p class="subcopy">Hands-free and camera context are active by default for natural conversation.</p>
+                <div class="launch-meta">
+                  <span class="chip">Mode: {{ conversationMode === 'handsfree' ? 'Hands-free' : 'Push-to-talk' }}</span>
+                  <span class="chip">Memory items: {{ safeMemory.items.length }}</span>
+                </div>
+                <button class="primary-btn" @click="startSession" :disabled="isLoading">
+                  {{ isLoading ? 'Loading...' : 'Start Session' }}
                 </button>
               </div>
-            </div>
-            <div v-else key="practice" class="practice-panel">
-              <div class="chat-frame">
-                <ChatBubbles :history="displayHistory" />
-              </div>
-              <div class="controls-panel">
-                <div class="mode-switch" role="group" aria-label="Conversation mode">
-                  <button
-                    class="mode-btn"
-                    :class="{ active: conversationMode === 'handsfree' }"
-                    @click="setConversationMode('handsfree')"
-                  >
-                    Hands-free
-                  </button>
-                  <button
-                    class="mode-btn"
-                    :class="{ active: conversationMode === 'manual' }"
-                    @click="setConversationMode('manual')"
-                  >
-                    Push-to-talk
-                  </button>
-                </div>
+            </section>
 
-                <div v-if="conversationMode === 'manual'" class="manual-controls">
-                  <MicButton
-                    :state="micState"
-                    :disabled="!canTalk"
-                    @start-recording="startRecording"
-                    @stop-recording="stopRecording"
-                  />
+            <section v-else key="practice" class="practice-grid">
+              <article class="card chat-card">
+                <div class="chat-header">
+                  <h3>Conversation</h3>
+                  <span class="muted">{{ autoListenPaused ? 'Paused' : 'Live' }}</span>
                 </div>
+                <div class="chat-frame">
+                  <ChatBubbles :history="displayHistory" />
+                </div>
+              </article>
 
-                <div v-else class="handsfree-controls">
-                  <button class="hf-btn" @click="toggleAutoListen">
-                    {{ autoListenPaused ? 'Resume listening' : 'Pause listening' }}
-                  </button>
-                  <button class="hf-btn secondary" @click="interruptTeddyAndListen">
-                    Interrupt Teddy
-                  </button>
-                  <button class="hf-btn secondary" @click="toggleCamera">
-                    {{ cameraEnabled ? 'Disable camera' : 'Enable camera' }}
-                  </button>
-                  <span class="hf-status">
-                    {{ autoListenPaused ? 'Auto-listening paused' : 'Teddy listens automatically' }}
-                  </span>
-                </div>
-              </div>
-            </div>
+              <aside class="side-rail">
+                <article class="card rail-card">
+                  <h4>Conversation Mode</h4>
+                  <div class="mode-switch">
+                    <button class="mode-btn" :class="{ active: conversationMode === 'handsfree' }" @click="setConversationMode('handsfree')">
+                      Hands-free
+                    </button>
+                    <button class="mode-btn" :class="{ active: conversationMode === 'manual' }" @click="setConversationMode('manual')">
+                      Push-to-talk
+                    </button>
+                  </div>
+                  <div v-if="conversationMode === 'manual'" class="manual-controls">
+                    <MicButton
+                      :state="micState"
+                      :disabled="!canTalk"
+                      @start-recording="startRecording"
+                      @stop-recording="stopRecording"
+                    />
+                  </div>
+                  <div v-else class="actions">
+                    <button class="tiny-btn" @click="toggleAutoListen">
+                      {{ autoListenPaused ? 'Resume listening' : 'Pause listening' }}
+                    </button>
+                    <button class="tiny-btn" @click="interruptTeddyAndListen">Interrupt Teddy</button>
+                  </div>
+                </article>
+
+                <article class="card rail-card">
+                  <h4>Live Vision Context</h4>
+                  <p class="muted">{{ cameraStatusText }}</p>
+                  <div class="tag-list">
+                    <span v-for="(item, idx) in visualHighlights" :key="`visual-${idx}`" class="tag">{{ item }}</span>
+                    <span v-if="!visualHighlights.length" class="muted">No visual hints yet.</span>
+                  </div>
+                </article>
+
+                <article class="card rail-card">
+                  <div class="memory-head">
+                    <h4>Safe Memory</h4>
+                    <button class="tiny-btn danger" :disabled="memoryBusy" @click="clearSafeMemory">
+                      {{ memoryBusy ? 'Clearing...' : 'Clear' }}
+                    </button>
+                  </div>
+                  <div class="tag-list">
+                    <span v-for="(item, idx) in memoryHighlights" :key="`mem-${idx}`" class="tag">{{ item }}</span>
+                    <span v-if="!memoryHighlights.length" class="muted">No saved preferences yet.</span>
+                  </div>
+                </article>
+              </aside>
+            </section>
           </transition>
         </section>
       </main>
@@ -378,6 +396,22 @@ const cameraStatusText = computed(() => {
   const colors = Array.isArray(context.colors) ? context.colors : [];
   if (!objects.length && !colors.length) return 'Looking for toys and colors...';
   return `I can see ${[...objects, ...colors].slice(0, 3).join(', ')}`;
+});
+
+const visualHighlights = computed(() => {
+  const context = latestVisualContext.value || {};
+  const objects = Array.isArray(context.objects) ? context.objects : [];
+  const colors = Array.isArray(context.colors) ? context.colors : [];
+  const list = [];
+  if (context.shortScene) list.push(context.shortScene);
+  objects.slice(0, 4).forEach((item) => list.push(`object: ${item}`));
+  colors.slice(0, 4).forEach((item) => list.push(`color: ${item}`));
+  return list.slice(0, 8);
+});
+
+const memoryHighlights = computed(() => {
+  const items = Array.isArray(safeMemory.value.items) ? safeMemory.value.items : [];
+  return items.slice(0, 10).map((item) => `${item.type}: ${item.value}`);
 });
 
 const stopAllSpeech = () => {
@@ -1087,124 +1121,117 @@ const exit = () => {
 @import url('https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;700;800&family=Nunito:wght@500;600;700&display=swap');
 
 .page-bg {
-  --ui-page-bg:
-    radial-gradient(circle at 20% 20%, rgba(255, 223, 187, 0.6), transparent 35%),
-    radial-gradient(circle at 90% 10%, rgba(255, 183, 120, 0.35), transparent 28%),
-    linear-gradient(160deg, #fff7ef 0%, #ffeedd 45%, #ffd9b3 100%);
-  --ui-text: #402515;
-  --ui-shell-bg: rgba(255, 255, 255, 0.78);
-  --ui-shell-border: rgba(162, 100, 46, 0.18);
-  --ui-shell-shadow: rgba(144, 84, 36, 0.18);
-  --ui-topbar-bg: linear-gradient(120deg, #d97a2f 0%, #bc5f20 45%, #8f4317 100%);
-  --ui-topbar-text: #fff9f3;
-  --ui-accent: #b85f23;
-  --ui-accent-strong: #904115;
-  --ui-soft-surface: rgba(255, 255, 255, 0.84);
-  --ui-soft-border: rgba(157, 91, 43, 0.16);
-  --ui-chat-surface: #fffaf4;
-  --ui-primary: #d4772a;
-  --ui-primary-dark: #aa551f;
-  --ui-primary-soft: #ffeed9;
+  --bg:
+    radial-gradient(circle at 14% 12%, rgba(255, 176, 106, 0.46), transparent 35%),
+    radial-gradient(circle at 92% 8%, rgba(255, 122, 77, 0.22), transparent 28%),
+    linear-gradient(145deg, #fff8ef 0%, #ffe6ce 48%, #ffd2a9 100%);
+  --shell: rgba(255, 252, 246, 0.84);
+  --shell-border: rgba(164, 101, 50, 0.2);
+  --text: #3f2617;
+  --muted: #7a5742;
+  --accent: #bf6528;
+  --accent-2: #8c3f15;
+  --surface: rgba(255, 255, 255, 0.74);
+  --surface-border: rgba(164, 101, 50, 0.16);
   min-height: 100vh;
-  width: 100%;
-  padding: 24px;
-  background: var(--ui-page-bg);
-  display: flex;
-  align-items: stretch;
-  justify-content: center;
+  padding: 20px;
+  background: var(--bg);
+  color: var(--text);
   font-family: 'Nunito', sans-serif;
-  color: var(--ui-text);
 }
 
 .page-bg.theme-night {
-  --ui-page-bg:
-    radial-gradient(circle at 12% 18%, rgba(255, 170, 97, 0.16), transparent 28%),
-    radial-gradient(circle at 90% 10%, rgba(121, 138, 255, 0.2), transparent 30%),
-    linear-gradient(155deg, #171723 0%, #1f1c2f 56%, #2f2338 100%);
-  --ui-text: #fce6d5;
-  --ui-shell-bg: rgba(27, 23, 35, 0.8);
-  --ui-shell-border: rgba(255, 177, 110, 0.18);
-  --ui-shell-shadow: rgba(8, 6, 14, 0.5);
-  --ui-topbar-bg: linear-gradient(120deg, #7c3f17 0%, #5b2f17 45%, #3a1d17 100%);
-  --ui-topbar-text: #ffe8d8;
-  --ui-accent: #ffae6a;
-  --ui-accent-strong: #f5904f;
-  --ui-soft-surface: rgba(42, 34, 48, 0.74);
-  --ui-soft-border: rgba(255, 173, 107, 0.2);
-  --ui-chat-surface: #352d3e;
-  --ui-primary: #e59452;
-  --ui-primary-dark: #b9642f;
-  --ui-primary-soft: #4a3942;
+  --bg:
+    radial-gradient(circle at 12% 16%, rgba(255, 165, 95, 0.2), transparent 36%),
+    radial-gradient(circle at 88% 10%, rgba(127, 143, 255, 0.22), transparent 30%),
+    linear-gradient(160deg, #181622 0%, #221d33 52%, #2f2337 100%);
+  --shell: rgba(30, 24, 38, 0.84);
+  --shell-border: rgba(255, 186, 123, 0.2);
+  --text: #ffe9d8;
+  --muted: #d2b29b;
+  --accent: #ffad6b;
+  --accent-2: #f08c4b;
+  --surface: rgba(41, 33, 50, 0.72);
+  --surface-border: rgba(255, 176, 114, 0.24);
 }
 
 .app-shell {
-  width: min(1320px, 100%);
-  min-height: calc(100vh - 48px);
-  background: var(--ui-shell-bg);
-  border: 1px solid var(--ui-shell-border);
-  border-radius: 34px;
+  width: min(1380px, 100%);
+  min-height: calc(100vh - 40px);
+  margin: 0 auto;
+  background: var(--shell);
+  border: 1px solid var(--shell-border);
+  border-radius: 28px;
+  box-shadow: 0 24px 64px rgba(61, 28, 10, 0.18);
   backdrop-filter: blur(14px);
-  box-shadow: 0 24px 70px var(--ui-shell-shadow);
   display: flex;
   flex-direction: column;
   overflow: hidden;
 }
 
 .top-bar {
-  padding: 18px 24px;
-  background: var(--ui-topbar-bg);
-  color: var(--ui-topbar-text);
+  padding: 16px 22px;
   display: flex;
-  align-items: center;
   justify-content: space-between;
+  align-items: center;
   gap: 14px;
+  border-bottom: 1px solid var(--surface-border);
 }
 
 .brand-wrap {
   display: flex;
-  align-items: center;
   gap: 12px;
+  align-items: center;
 }
 
 .brand-icon {
   width: 44px;
   height: 44px;
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.2);
   display: grid;
   place-items: center;
-  font-size: 23px;
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  font-size: 24px;
 }
 
 .brand-title {
   margin: 0;
-  font-family: 'Baloo 2', cursive;
-  font-size: 40px;
   line-height: 1;
+  font-size: 40px;
+  font-family: 'Baloo 2', cursive;
 }
 
 .brand-subtitle {
   margin: 0;
   font-size: 13px;
-  opacity: 0.92;
+  color: var(--muted);
 }
 
 .top-right {
   display: flex;
   align-items: center;
   gap: 10px;
+  flex-wrap: wrap;
 }
 
-.theme-btn {
-  border: 1px solid rgba(255, 255, 255, 0.26);
-  background: rgba(255, 255, 255, 0.1);
-  color: inherit;
+.ghost-link,
+.theme-btn,
+.end-btn {
+  border: 1px solid var(--surface-border);
   border-radius: 999px;
   padding: 8px 12px;
   font-size: 12px;
   font-weight: 800;
-  letter-spacing: 0.02em;
+  background: color-mix(in srgb, var(--surface) 88%, #ffffff 12%);
+  color: inherit;
+  text-decoration: none;
   cursor: pointer;
+}
+
+.end-btn {
+  background: linear-gradient(120deg, var(--accent) 0%, var(--accent-2) 100%);
+  color: #fff7ef;
+  border: none;
 }
 
 .stats-pills {
@@ -1213,301 +1240,301 @@ const exit = () => {
 }
 
 .stat-pill {
-  background: rgba(255, 255, 255, 0.18);
-  padding: 8px 12px;
   border-radius: 999px;
-  font-size: 13px;
-  font-weight: 700;
-}
-
-.end-btn {
-  border: none;
-  border-radius: 999px;
-  padding: 10px 15px;
+  padding: 7px 11px;
   font-size: 12px;
-  font-weight: 800;
-  letter-spacing: 0.4px;
-  text-transform: uppercase;
-  color: #76310f;
-  background: #ffe0c8;
-  cursor: pointer;
+  font-weight: 700;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
 }
 
-.main-grid {
+.layout {
   flex: 1;
-  display: grid;
-  grid-template-columns: minmax(330px, 460px) 1fr;
-  gap: 18px;
-  padding: 18px;
   min-height: 0;
+  display: grid;
+  grid-template-columns: 360px 1fr;
+  gap: 16px;
+  padding: 16px;
 }
 
-.teddy-panel {
+.stage-column {
   display: flex;
   flex-direction: column;
   gap: 12px;
   min-height: 0;
-  align-items: center;
+}
+
+.stage-card,
+.camera-card,
+.card {
+  border-radius: 18px;
+  border: 1px solid var(--surface-border);
+  background: var(--surface);
+}
+
+.stage-card {
+  min-height: 320px;
+  display: grid;
+  place-items: center;
+  padding: 8px;
+}
+
+.status-row {
+  display: flex;
   justify-content: center;
-  overflow: hidden;
-  position: relative;
-  z-index: 0;
 }
 
-.teddy-state-chip {
-  border-radius: 14px;
-  padding: 12px 14px;
-  font-size: 14px;
-  font-weight: 700;
-  border: 1px solid rgba(167, 95, 41, 0.24);
-  background: #fff6ea;
-}
-
-.teddy-state-chip.listening {
-  background: #fff2da;
-  border-color: rgba(231, 139, 44, 0.35);
-}
-
-.teddy-state-chip.speaking {
-  background: #ffe3d3;
-  border-color: rgba(221, 89, 47, 0.4);
+.state-pill {
+  border-radius: 999px;
+  padding: 10px 14px;
+  font-size: 13px;
+  font-weight: 800;
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
 }
 
 .camera-card {
-  width: min(320px, 100%);
-  border-radius: 16px;
-  border: 1px solid var(--ui-soft-border);
-  background: color-mix(in srgb, var(--ui-chat-surface) 84%, #ffffff 16%);
-  overflow: hidden;
-  opacity: 0.85;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
-.camera-card.active {
-  opacity: 1;
+.camera-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
 }
 
 .camera-preview {
-  display: block;
   width: 100%;
+  border-radius: 12px;
   aspect-ratio: 4 / 3;
   object-fit: cover;
-  background: rgba(20, 20, 22, 0.22);
+  background: rgba(20, 18, 18, 0.24);
 }
 
-.camera-meta {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 8px 10px;
-}
-
-.camera-meta strong {
+.camera-status {
+  margin: 0;
   font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--ui-accent-strong);
+  color: var(--muted);
 }
 
-.camera-meta span {
-  font-size: 12px;
-  font-weight: 700;
-  color: color-mix(in srgb, var(--ui-text) 76%, #ffffff 24%);
-}
-
-.content-panel {
+.workspace-column {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  background: var(--ui-soft-surface);
-  border: 1px solid var(--ui-soft-border);
-  border-radius: 26px;
-  padding: 18px;
+  gap: 12px;
 }
 
 .error-banner {
   border-radius: 12px;
-  background: #ffe5e5;
-  color: #7b1f1f;
-  border: 1px solid #e8b2b2;
+  border: 1px solid #efb9b1;
+  background: #ffe4df;
+  color: #902d20;
   padding: 10px 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
   font-size: 13px;
   font-weight: 700;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
 }
 
 .error-close {
+  background: none;
   border: none;
-  background: transparent;
-  color: #7b1f1f;
+  color: inherit;
   cursor: pointer;
-  font-size: 16px;
 }
 
-.welcome-panel {
-  flex: 1;
-  border-radius: 18px;
-  background: linear-gradient(180deg, color-mix(in srgb, var(--ui-chat-surface) 84%, #fff 16%) 0%, var(--ui-chat-surface) 100%);
-  border: 1px solid var(--ui-soft-border);
-  padding: 42px 34px;
+.card {
+  padding: 22px;
+}
+
+.setup-block,
+.launch-block {
   display: flex;
   flex-direction: column;
-  justify-content: center;
-  align-items: center;
-  text-align: center;
-  gap: 16px;
+  gap: 14px;
 }
 
 .kicker {
   margin: 0;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  font-size: 12px;
+  font-size: 11px;
+  letter-spacing: 0.12em;
   font-weight: 800;
-  color: #ab5c24;
+  text-transform: uppercase;
+  color: var(--accent);
 }
 
-.welcome-panel h2 {
+h2 {
   margin: 0;
   font-family: 'Baloo 2', cursive;
-  font-size: clamp(36px, 4.8vw, 62px);
-  line-height: 0.95;
-  color: var(--ui-accent-strong);
+  font-size: clamp(34px, 3.6vw, 54px);
+  line-height: 0.96;
 }
 
-.welcome-panel p {
+.subcopy {
   margin: 0;
-  font-size: 19px;
-  line-height: 1.55;
-  max-width: 620px;
-  color: color-mix(in srgb, var(--ui-text) 78%, #ffffff 22%);
-}
-
-.setup-panel {
-  width: min(760px, 100%);
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  align-items: center;
+  color: var(--muted);
+  max-width: 760px;
+  line-height: 1.5;
+  font-size: 17px;
 }
 
 .setup-grid {
-  width: 100%;
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
+  gap: 10px;
 }
 
-.setup-field {
+.field {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  text-align: left;
-  font-size: 14px;
   font-weight: 700;
-  color: color-mix(in srgb, var(--ui-text) 88%, #ffffff 12%);
+  font-size: 13px;
 }
 
-.setup-field input,
-.setup-field select {
-  width: 100%;
-  border: 1px solid var(--ui-soft-border);
-  border-radius: 12px;
-  padding: 12px 14px;
-  font-size: 16px;
+.field input,
+.field select {
+  border: 1px solid var(--surface-border);
+  border-radius: 11px;
+  padding: 11px 12px;
+  font-size: 15px;
   font-family: inherit;
-  background: color-mix(in srgb, var(--ui-chat-surface) 86%, #ffffff 14%);
-  color: var(--ui-text);
+  color: inherit;
+  background: color-mix(in srgb, var(--surface) 90%, #ffffff 10%);
 }
 
-.setup-field input:focus,
-.setup-field select:focus {
-  outline: 2px solid color-mix(in srgb, var(--ui-primary) 44%, #ffffff 56%);
+.field input:focus,
+.field select:focus {
+  outline: 2px solid color-mix(in srgb, var(--accent) 36%, #ffffff 64%);
   outline-offset: 1px;
 }
 
 .setup-error {
   margin: 0;
-  color: #8a1d1d;
-  background: #ffe3df;
-  border: 1px solid #efb9b1;
-  border-radius: 10px;
-  padding: 8px 12px;
-  font-size: 14px;
+  color: #8f2d1f;
+  font-size: 13px;
   font-weight: 700;
 }
 
-.start-btn {
-  margin-top: 8px;
+.primary-btn {
   border: none;
   border-radius: 999px;
-  padding: 18px 42px;
-  min-width: 280px;
-  font-size: 24px;
-  font-weight: 800;
+  padding: 16px 24px;
+  min-width: 220px;
+  font-size: 21px;
   font-family: 'Baloo 2', cursive;
-  color: #fff8f0;
-  background: linear-gradient(120deg, var(--ui-primary) 0%, var(--ui-accent) 50%, var(--ui-accent-strong) 100%);
-  box-shadow: 0 14px 34px rgba(153, 73, 24, 0.3);
+  font-weight: 800;
+  color: #fff8f2;
+  background: linear-gradient(120deg, var(--accent) 0%, var(--accent-2) 100%);
   cursor: pointer;
 }
 
-.start-btn:disabled {
-  opacity: 0.7;
+.primary-btn:disabled {
+  opacity: 0.66;
   cursor: not-allowed;
 }
 
-.practice-panel {
-  flex: 1;
+.launch-meta {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.chip {
+  font-size: 12px;
+  font-weight: 700;
+  border-radius: 999px;
+  padding: 6px 10px;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.practice-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 330px;
+  gap: 12px;
+  min-height: 0;
+}
+
+.chat-card {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
+}
+
+.chat-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.chat-header h3,
+.rail-card h4 {
+  margin: 0;
+}
+
+.muted {
+  color: var(--muted);
+  font-size: 12px;
 }
 
 .chat-frame {
   flex: 1;
-  min-height: 0;
-  border-radius: 18px;
+  min-height: 320px;
+  border-radius: 14px;
   overflow: hidden;
-  border: 1px solid var(--ui-soft-border);
-  background: var(--ui-chat-surface);
+  border: 1px solid var(--surface-border);
+  background: color-mix(in srgb, var(--surface) 84%, #ffffff 16%);
 }
 
-.controls-panel {
+.side-rail {
+  min-height: 0;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  justify-content: center;
   gap: 10px;
-  padding: 10px 8px 2px;
+}
+
+.rail-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
 .mode-switch {
-  display: inline-flex;
-  border: 1px solid var(--ui-soft-border);
-  border-radius: 999px;
-  padding: 4px;
-  background: color-mix(in srgb, var(--ui-chat-surface) 88%, #ffffff 12%);
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
 }
 
-.mode-btn {
-  border: none;
-  background: transparent;
-  color: var(--ui-text);
-  font-size: 13px;
-  font-weight: 800;
+.mode-btn,
+.tiny-btn {
+  border: 1px solid var(--surface-border);
+  background: color-mix(in srgb, var(--surface) 90%, #ffffff 10%);
+  color: inherit;
   border-radius: 999px;
-  padding: 8px 14px;
+  font-size: 12px;
+  font-weight: 800;
+  padding: 8px 12px;
   cursor: pointer;
 }
 
 .mode-btn.active {
-  background: linear-gradient(120deg, var(--ui-primary) 0%, var(--ui-accent) 60%, var(--ui-accent-strong) 100%);
-  color: #fff8f0;
+  background: linear-gradient(120deg, var(--accent) 0%, var(--accent-2) 100%);
+  border-color: transparent;
+  color: #fff9f1;
+}
+
+.tiny-btn.danger {
+  color: #932f1f;
+  border-color: rgba(147, 47, 31, 0.35);
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .manual-controls {
@@ -1515,72 +1542,76 @@ const exit = () => {
   justify-content: center;
 }
 
-.handsfree-controls {
+.tag-list {
   display: flex;
-  align-items: center;
-  gap: 10px;
   flex-wrap: wrap;
-  justify-content: center;
+  gap: 6px;
 }
 
-.hf-btn {
-  border: 1px solid var(--ui-soft-border);
-  background: color-mix(in srgb, var(--ui-chat-surface) 88%, #ffffff 12%);
-  color: var(--ui-text);
+.tag {
+  padding: 5px 9px;
   border-radius: 999px;
-  padding: 10px 14px;
-  font-size: 13px;
-  font-weight: 800;
-  cursor: pointer;
-}
-
-.hf-btn.secondary {
-  background: color-mix(in srgb, var(--ui-primary-soft) 80%, #ffffff 20%);
-}
-
-.hf-status {
-  font-size: 13px;
+  font-size: 11px;
   font-weight: 700;
-  color: color-mix(in srgb, var(--ui-text) 76%, #ffffff 24%);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.memory-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
 }
 
 .dashboard-overlay {
   width: 100%;
-  min-height: calc(100vh - 48px);
+  min-height: calc(100vh - 40px);
   display: grid;
   place-items: center;
 }
 
 .panel-switch-enter-active,
 .panel-switch-leave-active {
-  transition: opacity 0.24s ease, transform 0.24s ease;
+  transition: opacity 0.18s ease, transform 0.18s ease;
 }
 
 .panel-switch-enter-from,
 .panel-switch-leave-to {
   opacity: 0;
-  transform: translateY(8px);
+  transform: translateY(6px);
 }
 
-@media (max-width: 1040px) {
-  .main-grid {
+@media (max-width: 1180px) {
+  .layout {
     grid-template-columns: 1fr;
-    grid-template-rows: auto 1fr;
+  }
+
+  .stage-column {
+    order: 2;
+  }
+
+  .workspace-column {
+    order: 1;
+  }
+}
+
+@media (max-width: 900px) {
+  .practice-grid {
+    grid-template-columns: 1fr;
   }
 }
 
 @media (max-width: 700px) {
   .page-bg {
-    padding: 12px;
+    padding: 10px;
   }
 
   .app-shell {
-    min-height: calc(100vh - 24px);
-    border-radius: 22px;
+    min-height: calc(100vh - 20px);
+    border-radius: 18px;
   }
 
   .top-bar {
-    padding: 14px;
+    padding: 12px;
     flex-wrap: wrap;
   }
 
@@ -1588,50 +1619,16 @@ const exit = () => {
     font-size: 30px;
   }
 
-  .brand-subtitle {
-    display: none;
-  }
-
-  .top-right {
-    width: 100%;
-    justify-content: space-between;
-    flex-wrap: wrap;
-  }
-
-  .theme-btn {
-    order: -1;
-  }
-
-  .main-grid {
-    padding: 12px;
-    gap: 12px;
-  }
-
-  .content-panel {
-    padding: 12px;
-  }
-
-  .welcome-panel {
-    padding: 24px 18px;
-  }
-
-  .welcome-panel p {
-    font-size: 16px;
+  .layout {
+    padding: 10px;
   }
 
   .setup-grid {
     grid-template-columns: 1fr;
   }
 
-  .start-btn {
+  .primary-btn {
     width: 100%;
-    min-width: 0;
-    font-size: 22px;
-    padding: 14px 22px;
-  }
-
-  .handsfree-controls {
-    flex-direction: column;
   }
 }
 </style>

@@ -84,3 +84,7 @@ Last update: 2026-03-04
   - session start/end
   - Teddy interruption
   - camera enable/disable
+- Full UI/UX refresh in `App.vue`:
+  - redesigned layout with stage + conversation workspace + context rail
+  - integrated live vision tags and safe-memory chips into practicing view
+  - improved onboarding/start flow and controls hierarchy for hands-free mode
