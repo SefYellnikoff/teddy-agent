@@ -96,12 +96,43 @@
                 <ChatBubbles :history="displayHistory" />
               </div>
               <div class="controls-panel">
-                <MicButton
-                  :state="micState"
-                  :disabled="!canTalk"
-                  @start-recording="startRecording"
-                  @stop-recording="stopRecording"
-                />
+                <div class="mode-switch" role="group" aria-label="Conversation mode">
+                  <button
+                    class="mode-btn"
+                    :class="{ active: conversationMode === 'handsfree' }"
+                    @click="setConversationMode('handsfree')"
+                  >
+                    Hands-free
+                  </button>
+                  <button
+                    class="mode-btn"
+                    :class="{ active: conversationMode === 'manual' }"
+                    @click="setConversationMode('manual')"
+                  >
+                    Push-to-talk
+                  </button>
+                </div>
+
+                <div v-if="conversationMode === 'manual'" class="manual-controls">
+                  <MicButton
+                    :state="micState"
+                    :disabled="!canTalk"
+                    @start-recording="startRecording"
+                    @stop-recording="stopRecording"
+                  />
+                </div>
+
+                <div v-else class="handsfree-controls">
+                  <button class="hf-btn" @click="toggleAutoListen">
+                    {{ autoListenPaused ? 'Resume listening' : 'Pause listening' }}
+                  </button>
+                  <button class="hf-btn secondary" @click="interruptTeddyAndListen">
+                    Interrupt Teddy
+                  </button>
+                  <span class="hf-status">
+                    {{ autoListenPaused ? 'Auto-listening paused' : 'Teddy listens automatically' }}
+                  </span>
+                </div>
               </div>
             </div>
           </transition>
@@ -143,6 +174,10 @@ const childProfile = ref(null);
 const setupSaving = ref(false);
 const setupError = ref('');
 const needsSetup = ref(true);
+const conversationMode = ref('handsfree');
+const autoListenPaused = ref(false);
+const isRecognitionActive = ref(false);
+const isRequestInFlight = ref(false);
 const profileForm = reactive({
   childName: '',
   ageGroup: '6-7',
@@ -164,6 +199,7 @@ let sessionStartTime = null;
 let updateTimer = null;
 let nlpLib = null;
 let nlpImportPromise = null;
+let recognitionRestartTimer = null;
 
 onMounted(() => {
   loadProfile().catch((loadError) => {
@@ -187,19 +223,25 @@ onMounted(() => {
   synthesis = SpeechSynthesis;
   tts = new Speech();
 
-  // Keep recognition single-shot to match press-to-talk UX.
+  // Hands-free uses continuous listen/restart. Manual mode still works with the same recognizer.
   recognition.continuous = false;
-  recognition.interimResults = false;
+  recognition.interimResults = true;
   recognition.lang = 'en-US';
 
   recognition.onstart = () => {
-    animationState.value = 'listening';
+    isRecognitionActive.value = true;
+    if (animationState.value === 'idle') {
+      animationState.value = 'listening';
+    }
   };
 
   recognition.onresult = (event) => {
     let transcript = '';
     for (let i = event.resultIndex; i < event.results.length; i += 1) {
-      transcript += event.results[i][0].transcript;
+      const result = event.results[i];
+      if (result.isFinal) {
+        transcript += result[0].transcript;
+      }
     }
 
     if (transcript.trim()) {
@@ -208,14 +250,19 @@ onMounted(() => {
   };
 
   recognition.onerror = (event) => {
-    error.value = `Speech recognition error: ${event.error}`;
+    if (event.error !== 'no-speech' && event.error !== 'aborted') {
+      error.value = `Speech recognition error: ${event.error}`;
+    }
+    isRecognitionActive.value = false;
     animationState.value = 'idle';
   };
 
   recognition.onend = () => {
+    isRecognitionActive.value = false;
     if (animationState.value === 'listening') {
       animationState.value = 'idle';
     }
+    scheduleAutoListening(260);
   };
 
   if (tts.hasBrowserSupport()) {
@@ -242,12 +289,23 @@ onMounted(() => {
 
 onUnmounted(() => {
   if (updateTimer) clearInterval(updateTimer);
+  if (recognitionRestartTimer) clearTimeout(recognitionRestartTimer);
   if (recognition) recognition.stop();
-  if (synthesis) synthesis.cancel();
+  stopAllSpeech();
 });
 
 const canTalk = computed(() => {
-  return animationState.value === 'idle' && sessionPhase.value === 'practicing' && !showDashboard.value;
+  return conversationMode.value === 'manual'
+    && animationState.value === 'idle'
+    && sessionPhase.value === 'practicing'
+    && !showDashboard.value;
+});
+
+const autoListenEnabled = computed(() => {
+  return conversationMode.value === 'handsfree'
+    && sessionPhase.value === 'practicing'
+    && !showDashboard.value
+    && !autoListenPaused.value;
 });
 
 const micState = computed(() => {
@@ -264,11 +322,77 @@ const displayHistory = computed(() => {
 });
 
 const teddyStatusText = computed(() => {
+  if (conversationMode.value === 'handsfree' && autoListenPaused.value && sessionPhase.value === 'practicing') {
+    return '⏸ Teddy is paused';
+  }
   if (animationState.value === 'listening') return '👂 Teddy is listening';
   if (animationState.value === 'speaking') return '💬 Teddy is talking';
   if (sessionPhase.value === 'practicing') return '✨ Your turn to speak';
   return '🌟 Ready for a new session';
 });
+
+const stopAllSpeech = () => {
+  if (tts && ttsReady) {
+    try {
+      tts.cancel();
+    } catch (errorCancel) {
+      console.warn('Failed to cancel speak-tts:', errorCancel);
+    }
+  }
+  if (synthesis) synthesis.cancel();
+};
+
+const scheduleAutoListening = (delayMs = 200) => {
+  if (recognitionRestartTimer) {
+    clearTimeout(recognitionRestartTimer);
+    recognitionRestartTimer = null;
+  }
+  if (!autoListenEnabled.value) return;
+  if (animationState.value !== 'idle') return;
+  if (isRequestInFlight.value) return;
+  if (isRecognitionActive.value) return;
+
+  recognitionRestartTimer = setTimeout(() => {
+    if (!recognition || !autoListenEnabled.value || isRecognitionActive.value) return;
+    if (animationState.value !== 'idle') return;
+    try {
+      recognition.start();
+    } catch (errorStart) {
+      // Ignore invalid-state races when browser is already starting recognition.
+      console.warn('Recognition start skipped:', errorStart);
+    }
+  }, delayMs);
+};
+
+const setConversationMode = (mode) => {
+  if (mode !== 'handsfree' && mode !== 'manual') return;
+  conversationMode.value = mode;
+
+  if (mode === 'manual') {
+    autoListenPaused.value = true;
+    stopRecording();
+    return;
+  }
+
+  autoListenPaused.value = false;
+  scheduleAutoListening(80);
+};
+
+const toggleAutoListen = () => {
+  autoListenPaused.value = !autoListenPaused.value;
+  if (autoListenPaused.value) {
+    stopRecording();
+  } else {
+    scheduleAutoListening(80);
+  }
+};
+
+const interruptTeddyAndListen = () => {
+  stopAllSpeech();
+  animationState.value = 'idle';
+  autoListenPaused.value = false;
+  scheduleAutoListening(60);
+};
 
 const childDisplayName = computed(() => {
   return childProfile.value && childProfile.value.childName
@@ -349,6 +473,7 @@ const startSession = async () => {
   sessionPhase.value = 'practicing';
   animationState.value = 'idle';
   isLoading.value = false;
+  autoListenPaused.value = conversationMode.value === 'manual';
 
   sessionStartTime = Date.now();
   updateTimer = setInterval(updateSessionDuration, 1000);
@@ -384,6 +509,7 @@ const startSession = async () => {
     });
 
     animationState.value = 'idle';
+    scheduleAutoListening(180);
   } catch (err) {
     error.value = `Error: ${err.message}`;
     animationState.value = 'idle';
@@ -420,16 +546,40 @@ const detectTopicFromResponse = (userText) => {
 
 const startRecording = () => {
   if (!recognition) return;
-  recognition.start();
+  if (isRecognitionActive.value) return;
+  if (recognitionRestartTimer) {
+    clearTimeout(recognitionRestartTimer);
+    recognitionRestartTimer = null;
+  }
+  try {
+    recognition.start();
+  } catch (errorStart) {
+    console.warn('Recognition start failed:', errorStart);
+  }
 };
 
 const stopRecording = () => {
   if (!recognition) return;
-  recognition.stop();
+  if (recognitionRestartTimer) {
+    clearTimeout(recognitionRestartTimer);
+    recognitionRestartTimer = null;
+  }
+  if (!isRecognitionActive.value) return;
+  try {
+    recognition.stop();
+  } catch (errorStop) {
+    console.warn('Recognition stop failed:', errorStop);
+  }
 };
 
 const handleUserMessage = async (userText) => {
   if (!userText.trim()) return;
+  if (isRequestInFlight.value) return;
+
+  if (animationState.value === 'speaking') {
+    stopAllSpeech();
+  }
+  stopRecording();
 
   if (!selectedTopic.value) {
     selectedTopic.value = detectTopicFromResponse(userText);
@@ -443,6 +593,7 @@ const handleUserMessage = async (userText) => {
 
   sessionStats.exchanges += 1;
   animationState.value = 'thinking';
+  isRequestInFlight.value = true;
 
   try {
     const response = await fetch(API_URL, {
@@ -472,10 +623,16 @@ const handleUserMessage = async (userText) => {
     // Session insights shown in ParentDashboard.
     extractTopics(userText);
     detectMistakes(teddyReply);
-    speakReply(teddyReply);
+    await new Promise((resolve) => {
+      speakReply(teddyReply, resolve);
+    });
+    scheduleAutoListening(180);
   } catch (err) {
     error.value = `Error: ${err.message}`;
     animationState.value = 'idle';
+    scheduleAutoListening(240);
+  } finally {
+    isRequestInFlight.value = false;
   }
 };
 
@@ -577,6 +734,7 @@ const speakReply = (text, onEnd = null) => {
     return;
   }
 
+  stopRecording();
   synthesis.cancel();
   animationState.value = 'speaking';
 
@@ -650,8 +808,9 @@ const updateSessionDuration = () => {
 };
 
 const endSession = () => {
-  if (recognition) recognition.stop();
-  if (synthesis) synthesis.cancel();
+  autoListenPaused.value = true;
+  stopRecording();
+  stopAllSpeech();
   animationState.value = 'idle';
   showDashboard.value = true;
 };
@@ -669,6 +828,8 @@ const startNewSession = () => {
   });
   sessionStartTime = null;
   if (updateTimer) clearInterval(updateTimer);
+  autoListenPaused.value = conversationMode.value === 'manual';
+  isRequestInFlight.value = false;
   showDashboard.value = false;
 };
 
@@ -1032,9 +1193,69 @@ const exit = () => {
 
 .controls-panel {
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 10px;
   padding: 10px 8px 2px;
+}
+
+.mode-switch {
+  display: inline-flex;
+  border: 1px solid var(--ui-soft-border);
+  border-radius: 999px;
+  padding: 4px;
+  background: color-mix(in srgb, var(--ui-chat-surface) 88%, #ffffff 12%);
+}
+
+.mode-btn {
+  border: none;
+  background: transparent;
+  color: var(--ui-text);
+  font-size: 13px;
+  font-weight: 800;
+  border-radius: 999px;
+  padding: 8px 14px;
+  cursor: pointer;
+}
+
+.mode-btn.active {
+  background: linear-gradient(120deg, var(--ui-primary) 0%, var(--ui-accent) 60%, var(--ui-accent-strong) 100%);
+  color: #fff8f0;
+}
+
+.manual-controls {
+  display: flex;
+  justify-content: center;
+}
+
+.handsfree-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.hf-btn {
+  border: 1px solid var(--ui-soft-border);
+  background: color-mix(in srgb, var(--ui-chat-surface) 88%, #ffffff 12%);
+  color: var(--ui-text);
+  border-radius: 999px;
+  padding: 10px 14px;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.hf-btn.secondary {
+  background: color-mix(in srgb, var(--ui-primary-soft) 80%, #ffffff 20%);
+}
+
+.hf-status {
+  font-size: 13px;
+  font-weight: 700;
+  color: color-mix(in srgb, var(--ui-text) 76%, #ffffff 24%);
 }
 
 .dashboard-overlay {
@@ -1121,6 +1342,10 @@ const exit = () => {
     min-width: 0;
     font-size: 22px;
     padding: 14px 22px;
+  }
+
+  .handsfree-controls {
+    flex-direction: column;
   }
 }
 </style>
