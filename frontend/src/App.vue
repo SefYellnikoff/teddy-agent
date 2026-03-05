@@ -28,6 +28,19 @@
           <div class="teddy-state-chip" :class="animationState">
             {{ teddyStatusText }}
           </div>
+          <div class="camera-card" :class="{ active: cameraEnabled }">
+            <video
+              ref="cameraVideoRef"
+              class="camera-preview"
+              autoplay
+              muted
+              playsinline
+            ></video>
+            <div class="camera-meta">
+              <strong>Vision</strong>
+              <span>{{ cameraStatusText }}</span>
+            </div>
+          </div>
         </section>
 
         <section class="content-panel">
@@ -129,6 +142,9 @@
                   <button class="hf-btn secondary" @click="interruptTeddyAndListen">
                     Interrupt Teddy
                   </button>
+                  <button class="hf-btn secondary" @click="toggleCamera">
+                    {{ cameraEnabled ? 'Disable camera' : 'Enable camera' }}
+                  </button>
                   <span class="hf-status">
                     {{ autoListenPaused ? 'Auto-listening paused' : 'Teddy listens automatically' }}
                   </span>
@@ -152,7 +168,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, onUnmounted } from 'vue';
+import { ref, reactive, computed, onMounted, onUnmounted, nextTick } from 'vue';
 import Speech from 'speak-tts';
 import TeddyFace from './components/TeddyFace.vue';
 import MicButton from './components/MicButton.vue';
@@ -161,6 +177,7 @@ import ParentDashboard from './components/ParentDashboard.vue';
 
 const API_URL = 'http://localhost:3000/api/chat';
 const API_PROFILE_URL = 'http://localhost:3000/api/profile';
+const API_VISION_URL = 'http://localhost:3000/api/vision/analyze';
 
 const history = ref([]);
 const sessionPhase = ref('idle');
@@ -178,6 +195,12 @@ const conversationMode = ref('handsfree');
 const autoListenPaused = ref(false);
 const isRecognitionActive = ref(false);
 const isRequestInFlight = ref(false);
+const cameraEnabled = ref(true);
+const cameraReady = ref(false);
+const cameraError = ref('');
+const visionInFlight = ref(false);
+const latestVisualContext = ref(null);
+const cameraVideoRef = ref(null);
 const profileForm = reactive({
   childName: '',
   ageGroup: '6-7',
@@ -200,6 +223,9 @@ let updateTimer = null;
 let nlpLib = null;
 let nlpImportPromise = null;
 let recognitionRestartTimer = null;
+let cameraStream = null;
+let visionTimer = null;
+let cameraCanvas = null;
 
 onMounted(() => {
   loadProfile().catch((loadError) => {
@@ -290,6 +316,8 @@ onMounted(() => {
 onUnmounted(() => {
   if (updateTimer) clearInterval(updateTimer);
   if (recognitionRestartTimer) clearTimeout(recognitionRestartTimer);
+  stopVisionLoop();
+  stopCamera();
   if (recognition) recognition.stop();
   stopAllSpeech();
 });
@@ -331,6 +359,17 @@ const teddyStatusText = computed(() => {
   return '🌟 Ready for a new session';
 });
 
+const cameraStatusText = computed(() => {
+  if (!cameraEnabled.value) return 'Camera off';
+  if (cameraError.value) return `Camera error: ${cameraError.value}`;
+  if (!cameraReady.value) return 'Camera starting...';
+  const context = latestVisualContext.value || {};
+  const objects = Array.isArray(context.objects) ? context.objects : [];
+  const colors = Array.isArray(context.colors) ? context.colors : [];
+  if (!objects.length && !colors.length) return 'Looking for toys and colors...';
+  return `I can see ${[...objects, ...colors].slice(0, 3).join(', ')}`;
+});
+
 const stopAllSpeech = () => {
   if (tts && ttsReady) {
     try {
@@ -340,6 +379,137 @@ const stopAllSpeech = () => {
     }
   }
   if (synthesis) synthesis.cancel();
+};
+
+const stopVisionLoop = () => {
+  if (visionTimer) {
+    clearInterval(visionTimer);
+    visionTimer = null;
+  }
+};
+
+const stopCamera = () => {
+  if (cameraStream) {
+    cameraStream.getTracks().forEach((track) => track.stop());
+    cameraStream = null;
+  }
+  if (cameraVideoRef.value) {
+    cameraVideoRef.value.srcObject = null;
+  }
+  cameraReady.value = false;
+};
+
+const startCamera = async () => {
+  if (!cameraEnabled.value) return false;
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    cameraError.value = 'Camera not supported in this browser.';
+    cameraEnabled.value = false;
+    return false;
+  }
+  if (cameraStream && cameraReady.value) return true;
+
+  cameraError.value = '';
+  try {
+    await nextTick();
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        facingMode: 'environment',
+        width: { ideal: 640 },
+        height: { ideal: 480 },
+      },
+      audio: false,
+    });
+    cameraStream = stream;
+    if (cameraVideoRef.value) {
+      cameraVideoRef.value.srcObject = stream;
+      try {
+        await cameraVideoRef.value.play();
+      } catch (playError) {
+        console.warn('Camera preview autoplay blocked:', playError);
+      }
+    }
+    cameraReady.value = true;
+    return true;
+  } catch (err) {
+    cameraError.value = err.message || 'Camera permission denied.';
+    cameraEnabled.value = false;
+    cameraReady.value = false;
+    return false;
+  }
+};
+
+const captureCameraFrame = () => {
+  const videoEl = cameraVideoRef.value;
+  if (!videoEl || !cameraReady.value) return null;
+  if (!videoEl.videoWidth || !videoEl.videoHeight) return null;
+
+  if (!cameraCanvas) {
+    cameraCanvas = document.createElement('canvas');
+  }
+  const width = Math.min(640, videoEl.videoWidth);
+  const height = Math.round((width / videoEl.videoWidth) * videoEl.videoHeight);
+  cameraCanvas.width = width;
+  cameraCanvas.height = height;
+
+  const ctx = cameraCanvas.getContext('2d');
+  if (!ctx) return null;
+  ctx.drawImage(videoEl, 0, 0, width, height);
+  return cameraCanvas.toDataURL('image/jpeg', 0.58);
+};
+
+const analyzeCameraFrame = async () => {
+  if (!cameraEnabled.value || !cameraReady.value || visionInFlight.value) return;
+  if (sessionPhase.value !== 'practicing') return;
+
+  const imageData = captureCameraFrame();
+  if (!imageData) return;
+
+  visionInFlight.value = true;
+  try {
+    const response = await fetch(API_VISION_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ imageData }),
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.error || `Vision API error: ${response.status}`);
+    }
+    latestVisualContext.value = data.context || null;
+  } catch (err) {
+    cameraError.value = err.message || 'Vision analysis failed.';
+  } finally {
+    visionInFlight.value = false;
+  }
+};
+
+const startVisionLoop = async () => {
+  stopVisionLoop();
+  const ready = await startCamera();
+  if (!ready) return;
+
+  analyzeCameraFrame().catch((err) => {
+    console.warn('Vision first frame failed:', err);
+  });
+  visionTimer = setInterval(() => {
+    analyzeCameraFrame().catch((err) => {
+      console.warn('Vision loop failed:', err);
+    });
+  }, 12000);
+};
+
+const toggleCamera = async () => {
+  cameraEnabled.value = !cameraEnabled.value;
+  cameraError.value = '';
+  if (!cameraEnabled.value) {
+    stopVisionLoop();
+    stopCamera();
+    latestVisualContext.value = null;
+    return;
+  }
+  if (sessionPhase.value === 'practicing') {
+    await startVisionLoop();
+  }
 };
 
 const scheduleAutoListening = (delayMs = 200) => {
@@ -477,6 +647,9 @@ const startSession = async () => {
 
   sessionStartTime = Date.now();
   updateTimer = setInterval(updateSessionDuration, 1000);
+  startVisionLoop().catch((visionError) => {
+    console.warn('Vision loop start failed:', visionError);
+  });
 
   try {
     animationState.value = 'speaking';
@@ -488,6 +661,7 @@ const startSession = async () => {
         history: [],
         topic: null,
         isFirstMessage: true,
+        visualContext: latestVisualContext.value,
       }),
     });
 
@@ -604,6 +778,7 @@ const handleUserMessage = async (userText) => {
         history: history.value.slice(0, -1),
         topic: selectedTopic.value,
         isFirstMessage: false,
+        visualContext: latestVisualContext.value,
       }),
     });
 
@@ -811,6 +986,8 @@ const endSession = () => {
   autoListenPaused.value = true;
   stopRecording();
   stopAllSpeech();
+  stopVisionLoop();
+  stopCamera();
   animationState.value = 'idle';
   showDashboard.value = true;
 };
@@ -830,6 +1007,7 @@ const startNewSession = () => {
   if (updateTimer) clearInterval(updateTimer);
   autoListenPaused.value = conversationMode.value === 'manual';
   isRequestInFlight.value = false;
+  latestVisualContext.value = null;
   showDashboard.value = false;
 };
 
@@ -1026,6 +1204,47 @@ const exit = () => {
 .teddy-state-chip.speaking {
   background: #ffe3d3;
   border-color: rgba(221, 89, 47, 0.4);
+}
+
+.camera-card {
+  width: min(320px, 100%);
+  border-radius: 16px;
+  border: 1px solid var(--ui-soft-border);
+  background: color-mix(in srgb, var(--ui-chat-surface) 84%, #ffffff 16%);
+  overflow: hidden;
+  opacity: 0.85;
+}
+
+.camera-card.active {
+  opacity: 1;
+}
+
+.camera-preview {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  background: rgba(20, 20, 22, 0.22);
+}
+
+.camera-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+}
+
+.camera-meta strong {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ui-accent-strong);
+}
+
+.camera-meta span {
+  font-size: 12px;
+  font-weight: 700;
+  color: color-mix(in srgb, var(--ui-text) 76%, #ffffff 24%);
 }
 
 .content-panel {

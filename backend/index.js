@@ -1,7 +1,12 @@
 require('dotenv').config({ path: `${__dirname}/.env` });
 const express = require('express');
 const cors = require('cors');
-const { getTeddyReplyDetailed, previewSanitizedReply, getActiveModelName } = require('./gemini');
+const {
+  getTeddyReplyDetailed,
+  previewSanitizedReply,
+  getActiveModelName,
+  analyzeVisualScene,
+} = require('./gemini');
 const { getAvailableModels, getDefaultModels, runBenchmark } = require('./benchmark');
 const { readProfile, saveProfile } = require('./profileStore');
 
@@ -64,10 +69,34 @@ app.post('/api/profile', (req, res) => {
   return res.json({ profile });
 });
 
+app.post('/api/vision/analyze', async (req, res) => {
+  try {
+    const { imageData } = req.body || {};
+    if (!imageData || typeof imageData !== 'string') {
+      return res.status(400).json({ error: 'imageData is required and must be a data URL string' });
+    }
+    if (imageData.length > 1_600_000) {
+      return res.status(413).json({ error: 'imageData payload too large' });
+    }
+
+    const result = await analyzeVisualScene(imageData);
+    return res.json(result);
+  } catch (error) {
+    console.error('Vision analyze error:', error);
+    return res.status(500).json({ error: 'Failed to analyze camera frame' });
+  }
+});
+
 // Chat endpoint
 app.post('/api/chat', async (req, res) => {
   try {
-    const { message, history = [], topic, isFirstMessage = false } = req.body;
+    const {
+      message,
+      history = [],
+      topic,
+      isFirstMessage = false,
+      visualContext = null,
+    } = req.body;
     const childProfile = readProfile();
 
     // Validate request
@@ -82,6 +111,7 @@ app.post('/api/chat', async (req, res) => {
       topic,
       isFirstMessage,
       childProfile,
+      visualContext,
     });
     const { reply, meta } = result;
 

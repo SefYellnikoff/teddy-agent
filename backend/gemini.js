@@ -202,6 +202,24 @@ ${profileLines.join('\n')}
 Use this profile only to adapt tone and examples. Never ask for personal data.`;
 }
 
+function buildVisualContextPrompt(visualContext = null) {
+  if (!visualContext || typeof visualContext !== 'object') return '';
+  const objects = Array.isArray(visualContext.objects) ? visualContext.objects.filter(Boolean).slice(0, 5) : [];
+  const colors = Array.isArray(visualContext.colors) ? visualContext.colors.filter(Boolean).slice(0, 5) : [];
+  const shortScene = String(visualContext.shortScene || '').trim();
+
+  if (!objects.length && !colors.length && !shortScene) return '';
+
+  const lines = [];
+  if (shortScene) lines.push(`Scene summary: ${shortScene}.`);
+  if (objects.length) lines.push(`Visible items: ${objects.join(', ')}.`);
+  if (colors.length) lines.push(`Visible colors: ${colors.join(', ')}.`);
+
+  return `Live camera context:
+${lines.join('\n')}
+Use this only as a light hint for playful conversation.`;
+}
+
 function extractUsageMetadata(response) {
   if (!response || typeof response !== 'object') return {};
   const usage = response.usageMetadata || {};
@@ -269,6 +287,7 @@ async function getTeddyReplyDetailed({
   isFirstMessage = false,
   model = ACTIVE_MODEL_NAME,
   childProfile = null,
+  visualContext = null,
 }) {
   const startedAt = Date.now();
   const candidateModels = getCandidateModels(model);
@@ -276,7 +295,8 @@ async function getTeddyReplyDetailed({
   try {
     const promptBase = buildSystemPrompt(topic, isFirstMessage || message === '[START_SESSION]');
     const profilePrompt = buildChildProfilePrompt(childProfile);
-    const systemPromptText = [promptBase, profilePrompt].filter(Boolean).join('\n\n');
+    const visualPrompt = buildVisualContextPrompt(visualContext);
+    const systemPromptText = [promptBase, profilePrompt, visualPrompt].filter(Boolean).join('\n\n');
 
     const contents = (isFirstMessage || message === '[START_SESSION]')
       ? [{ role: 'user', parts: [{ text: 'Hello Teddy!' }] }]
@@ -346,6 +366,118 @@ async function getTeddyReplyDetailed({
   }
 }
 
+function extractDataUrl(dataUrl = '') {
+  const match = String(dataUrl).match(/^data:(.+?);base64,(.+)$/);
+  if (!match) {
+    return null;
+  }
+  return {
+    mimeType: match[1],
+    data: match[2],
+  };
+}
+
+function normalizeVisionResult(raw) {
+  const base = (raw && typeof raw === 'object') ? raw : {};
+  const objects = Array.isArray(base.objects)
+    ? [...new Set(base.objects.map((v) => String(v || '').trim()).filter(Boolean))].slice(0, 5)
+    : [];
+  const colors = Array.isArray(base.colors)
+    ? [...new Set(base.colors.map((v) => String(v || '').trim()).filter(Boolean))].slice(0, 5)
+    : [];
+  const shortScene = String(base.shortScene || '').trim().slice(0, 120);
+  return {
+    objects,
+    colors,
+    shortScene,
+  };
+}
+
+function parseJsonFromText(text = '') {
+  const clean = String(text || '').trim();
+  if (!clean) return null;
+
+  try {
+    return JSON.parse(clean);
+  } catch (directError) {
+    const start = clean.indexOf('{');
+    const end = clean.lastIndexOf('}');
+    if (start >= 0 && end > start) {
+      const maybeJson = clean.slice(start, end + 1);
+      try {
+        return JSON.parse(maybeJson);
+      } catch (sliceError) {
+        return null;
+      }
+    }
+    return null;
+  }
+}
+
+async function analyzeVisualScene(imageDataUrl, model = ACTIVE_MODEL_NAME) {
+  const inlineData = extractDataUrl(imageDataUrl);
+  if (!inlineData || !inlineData.data) {
+    throw new Error('Invalid image data URL');
+  }
+
+  const prompt = `You analyze an image from a kid's play area.
+Return ONLY valid JSON with this schema:
+{"objects":["..."],"colors":["..."],"shortScene":"..."}
+Rules:
+- max 5 objects
+- max 5 colors
+- shortScene max 12 words
+- use simple lowercase words`;
+
+  const startedAt = Date.now();
+  const candidateModels = getCandidateModels(model);
+  let response = null;
+  let usedModel = candidateModels[0];
+  let lastModelError = null;
+
+  for (const currentModel of candidateModels) {
+    try {
+      usedModel = currentModel;
+      response = await getClient().models.generateContent({
+        model: currentModel,
+        contents: [{
+          role: 'user',
+          parts: [
+            { text: prompt },
+            { inlineData },
+          ],
+        }],
+      });
+      lastModelError = null;
+      break;
+    } catch (error) {
+      lastModelError = error;
+      if (isModelUnavailableError(error)) {
+        continue;
+      }
+      throw error;
+    }
+  }
+
+  if (!response) {
+    throw lastModelError || new Error('No Gemini model could analyze the image');
+  }
+
+  const rawText = extractReplyText(response);
+  const parsed = parseJsonFromText(rawText);
+  const context = normalizeVisionResult(parsed);
+
+  return {
+    context,
+    meta: {
+      model: usedModel,
+      latencyMs: Date.now() - startedAt,
+      usage: extractUsageMetadata(response),
+      hasContext: Boolean(context.objects.length || context.colors.length || context.shortScene),
+    },
+  };
+}
+
 function getActiveModelName() {
   return ACTIVE_MODEL_NAME;
 }
@@ -353,6 +485,7 @@ function getActiveModelName() {
 module.exports = {
   getTeddyReply,
   getTeddyReplyDetailed,
+  analyzeVisualScene,
   previewSanitizedReply,
   getActiveModelName,
 };

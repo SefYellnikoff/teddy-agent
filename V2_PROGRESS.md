@@ -3,13 +3,13 @@
 Last update: 2026-03-04
 
 ## Overall Progress
-- Current progress: `40%`
+- Current progress: `60%`
 - Rule: 5 major steps, each worth 20%
 
 ## Roadmap
 1. `Step 1 - Parent Onboarding + Child Profile` - `DONE` (20%)
 2. `Step 2 - Hands-free Conversation (VAD + auto turn-taking)` - `DONE` (20%)
-3. `Step 3 - Camera Vision Context (objects + colors)` - `TODO` (0%)
+3. `Step 3 - Camera Vision Context (objects + colors)` - `DONE` (20%)
 4. `Step 4 - Safe Memory Personalization` - `TODO` (0%)
 5. `Step 5 - Safety Hardening + UX Benchmarks` - `TODO` (0%)
 
@@ -27,8 +27,8 @@ Last update: 2026-03-04
 - Blocked session start until setup is completed.
 
 ## Notes for Next Step
-- Implement camera pipeline for scene summary (object + color extraction).
-- Pass visual context to chat endpoint in a safe, minimal payload.
+- Add short-term memory store for safe preferences (favorite colors, toys, activities).
+- Add strict memory filters to block personal/sensitive information.
 
 ## Implemented in Step 2
 - Added dual conversation mode in UI:
@@ -41,3 +41,16 @@ Last update: 2026-03-04
   - stop listening while Teddy speaks
   - avoid overlapping requests with in-flight guard
   - interrupt button to stop Teddy and resume listening quickly
+
+## Implemented in Step 3
+- Added backend vision endpoint:
+  - `POST /api/vision/analyze` with camera frame data URL
+- Added Gemini multimodal scene extraction:
+  - objects list
+  - colors list
+  - short scene summary
+- Added frontend camera integration:
+  - camera preview panel
+  - enable/disable camera control
+  - periodic frame analysis loop during practice
+- Added visual context injection into chat requests so Teddy can reference toys/colors naturally.
