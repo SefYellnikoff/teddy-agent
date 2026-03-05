@@ -49,6 +49,55 @@ function getUxMetricsSummary() {
   };
 }
 
+function getVisualObjects(visualContext) {
+  if (!visualContext || typeof visualContext !== 'object') return [];
+  const objects = Array.isArray(visualContext.objects) ? visualContext.objects : [];
+  return [...new Set(objects.map((value) => String(value || '').trim().toLowerCase()).filter(Boolean))].slice(0, 6);
+}
+
+function normalizeFocusObject(rawFocusObject = '') {
+  return String(rawFocusObject || '').trim().toLowerCase();
+}
+
+function messageHasAmbiguousReference(message = '') {
+  const lower = String(message || '').toLowerCase();
+  return /\b(this|that|it|one|thing|these|those)\b/.test(lower);
+}
+
+function detectFocusFromMessage(message = '', visualObjects = []) {
+  const lower = String(message || '').toLowerCase();
+  return visualObjects.find((objectName) => lower.includes(objectName)) || '';
+}
+
+function buildScopedVisualContext(visualContext, focusObject) {
+  if (!visualContext || typeof visualContext !== 'object') return visualContext;
+  if (!focusObject) return visualContext;
+
+  const objects = Array.isArray(visualContext.objects) ? visualContext.objects : [];
+  const colors = Array.isArray(visualContext.colors) ? visualContext.colors : [];
+  const scopedObjects = objects
+    .map((value) => String(value || '').trim().toLowerCase())
+    .filter((value) => value === focusObject);
+
+  return {
+    ...visualContext,
+    objects: scopedObjects.length ? scopedObjects : objects,
+    colors: colors.slice(0, 3),
+    shortScene: visualContext.shortScene || '',
+  };
+}
+
+function buildFocusClarificationReply(visualObjects = []) {
+  const options = visualObjects.slice(0, 2);
+  if (options.length >= 2) {
+    return `Do you mean the ${options[0]} or the ${options[1]}?`;
+  }
+  if (options.length === 1) {
+    return `Do you want to talk about the ${options[0]}?`;
+  }
+  return 'Can you show me what you want to talk about?';
+}
+
 // Middleware
 app.use(cors({
   origin: ['http://localhost:5173', 'http://localhost:5174', 'http://localhost:5175'],
@@ -155,9 +204,15 @@ app.post('/api/chat', async (req, res) => {
       topic,
       isFirstMessage = false,
       visualContext = null,
+      focusObject = '',
     } = req.body;
     const childProfile = readProfile();
     const safeMemory = readMemory();
+    const visualObjects = getVisualObjects(visualContext);
+    const normalizedFocusObject = normalizeFocusObject(focusObject);
+    const inlineFocusObject = detectFocusFromMessage(message, visualObjects);
+    const resolvedFocusObject = normalizedFocusObject || inlineFocusObject;
+    const scopedVisualContext = buildScopedVisualContext(visualContext, resolvedFocusObject);
 
     // Validate request
     if (!message || typeof message !== 'string') {
@@ -174,8 +229,37 @@ app.post('/api/chat', async (req, res) => {
           usage: {},
           safetyRedirect: true,
           reason: 'unsafe_input',
+          focusObject: resolvedFocusObject || null,
         },
         memory: safeMemory,
+        focusObject: resolvedFocusObject || null,
+        focusCandidates: visualObjects,
+      });
+    }
+
+    const needsFocusClarification = (
+      !isFirstMessage
+      && messageHasAmbiguousReference(message)
+      && !resolvedFocusObject
+      && visualObjects.length > 1
+    );
+
+    if (needsFocusClarification) {
+      const clarificationReply = buildFocusClarificationReply(visualObjects);
+      bumpUxMetric('chats');
+      return res.json({
+        reply: clarificationReply,
+        meta: {
+          model: null,
+          latencyMs: 0,
+          usage: {},
+          safetyRedirect: false,
+          reason: 'needs_focus_clarification',
+          focusObject: null,
+        },
+        memory: safeMemory,
+        focusObject: null,
+        focusCandidates: visualObjects,
       });
     }
 
@@ -186,7 +270,7 @@ app.post('/api/chat', async (req, res) => {
       topic,
       isFirstMessage,
       childProfile,
-      visualContext,
+      visualContext: scopedVisualContext,
       safeMemory,
     });
     const { reply, meta } = result;
@@ -209,6 +293,7 @@ app.post('/api/chat', async (req, res) => {
       finalWords: meta.sanitizedWordCount,
       memoryItems: (memoryUpdate.memory.items || []).length,
       safetyRedirect: Boolean(result.safetyRedirect),
+      focusObject: resolvedFocusObject || null,
     });
 
     // Return the response
@@ -216,6 +301,8 @@ app.post('/api/chat', async (req, res) => {
       reply,
       meta,
       memory: memoryUpdate.memory,
+      focusObject: resolvedFocusObject || null,
+      focusCandidates: visualObjects,
     });
   } catch (error) {
     bumpUxMetric('chatErrors');

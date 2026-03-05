@@ -149,6 +149,19 @@
                 <article class="card rail-card">
                   <h4>Live Vision Context</h4>
                   <p class="muted">{{ cameraStatusText }}</p>
+                  <p class="muted">Focus: <strong>{{ activeFocusLabel }}</strong></p>
+                  <div class="focus-row">
+                    <button class="tiny-btn" :class="{ active: !activeFocusObject }" @click="setActiveFocus('')">Auto</button>
+                    <button
+                      v-for="(candidate, idx) in focusCandidates"
+                      :key="`focus-${idx}`"
+                      class="tiny-btn"
+                      :class="{ active: activeFocusObject === candidate }"
+                      @click="setActiveFocus(candidate)"
+                    >
+                      {{ candidate }}
+                    </button>
+                  </div>
                   <div class="tag-list">
                     <span v-for="(item, idx) in visualHighlights" :key="`visual-${idx}`" class="tag">{{ item }}</span>
                     <span v-if="!visualHighlights.length" class="muted">No visual hints yet.</span>
@@ -224,6 +237,8 @@ const cameraError = ref('');
 const visionInFlight = ref(false);
 const latestVisualContext = ref(null);
 const cameraVideoRef = ref(null);
+const focusCandidates = ref([]);
+const activeFocusObject = ref('');
 const safeMemory = ref({ items: [], updatedAt: null });
 const memoryBusy = ref(false);
 const profileForm = reactive({
@@ -414,6 +429,10 @@ const memoryHighlights = computed(() => {
   return items.slice(0, 10).map((item) => `${item.type}: ${item.value}`);
 });
 
+const activeFocusLabel = computed(() => {
+  return activeFocusObject.value || 'auto';
+});
+
 const stopAllSpeech = () => {
   if (tts && ttsReady) {
     try {
@@ -423,6 +442,33 @@ const stopAllSpeech = () => {
     }
   }
   if (synthesis) synthesis.cancel();
+};
+
+const normalizeFocusValue = (value) => String(value || '').trim().toLowerCase();
+
+const syncFocusCandidates = (context) => {
+  const objects = Array.isArray(context && context.objects) ? context.objects : [];
+  focusCandidates.value = [...new Set(objects.map((item) => normalizeFocusValue(item)).filter(Boolean))].slice(0, 6);
+
+  if (focusCandidates.value.length === 1) {
+    activeFocusObject.value = focusCandidates.value[0];
+    return;
+  }
+  if (activeFocusObject.value && !focusCandidates.value.includes(activeFocusObject.value)) {
+    activeFocusObject.value = '';
+  }
+};
+
+const setActiveFocus = (objectName = '') => {
+  const normalized = normalizeFocusValue(objectName);
+  activeFocusObject.value = normalized;
+  sendUxEvent(normalized ? 'focus_selected' : 'focus_auto');
+};
+
+const detectFocusFromUserText = (text = '') => {
+  const lower = String(text || '').toLowerCase();
+  if (!lower) return '';
+  return focusCandidates.value.find((objectName) => lower.includes(objectName)) || '';
 };
 
 const stopVisionLoop = () => {
@@ -520,6 +566,7 @@ const analyzeCameraFrame = async () => {
       throw new Error(data.error || `Vision API error: ${response.status}`);
     }
     latestVisualContext.value = data.context || null;
+    syncFocusCandidates(latestVisualContext.value || {});
   } catch (err) {
     cameraError.value = err.message || 'Vision analysis failed.';
   } finally {
@@ -550,6 +597,8 @@ const toggleCamera = async () => {
     stopVisionLoop();
     stopCamera();
     latestVisualContext.value = null;
+    focusCandidates.value = [];
+    activeFocusObject.value = '';
     return;
   }
   if (sessionPhase.value === 'practicing') {
@@ -733,6 +782,7 @@ const startSession = async () => {
   }
 
   selectedTopic.value = null;
+  activeFocusObject.value = '';
   sessionPhase.value = 'practicing';
   animationState.value = 'idle';
   isLoading.value = false;
@@ -756,6 +806,7 @@ const startSession = async () => {
         topic: null,
         isFirstMessage: true,
         visualContext: latestVisualContext.value,
+        focusObject: activeFocusObject.value || null,
       }),
     });
 
@@ -767,6 +818,12 @@ const startSession = async () => {
     const teddyGreeting = data.reply;
     if (data.memory) {
       safeMemory.value = normalizeMemoryPayload(data.memory);
+    }
+    if (Array.isArray(data.focusCandidates)) {
+      focusCandidates.value = [...new Set(data.focusCandidates.map((item) => normalizeFocusValue(item)).filter(Boolean))].slice(0, 6);
+    }
+    if (data.focusObject) {
+      activeFocusObject.value = normalizeFocusValue(data.focusObject);
     }
 
     history.value.push({
@@ -855,6 +912,10 @@ const handleUserMessage = async (userText) => {
   if (!selectedTopic.value) {
     selectedTopic.value = detectTopicFromResponse(userText);
   }
+  const inlineFocus = detectFocusFromUserText(userText);
+  if (inlineFocus) {
+    activeFocusObject.value = inlineFocus;
+  }
 
   history.value.push({
     role: 'user',
@@ -876,6 +937,7 @@ const handleUserMessage = async (userText) => {
         topic: selectedTopic.value,
         isFirstMessage: false,
         visualContext: latestVisualContext.value,
+        focusObject: activeFocusObject.value || null,
       }),
     });
 
@@ -887,6 +949,14 @@ const handleUserMessage = async (userText) => {
     const teddyReply = data.reply;
     if (data.memory) {
       safeMemory.value = normalizeMemoryPayload(data.memory);
+    }
+    if (Array.isArray(data.focusCandidates)) {
+      focusCandidates.value = [...new Set(data.focusCandidates.map((item) => normalizeFocusValue(item)).filter(Boolean))].slice(0, 6);
+    }
+    if (data.focusObject) {
+      activeFocusObject.value = normalizeFocusValue(data.focusObject);
+    } else if (data.meta && data.meta.reason === 'needs_focus_clarification') {
+      activeFocusObject.value = '';
     }
 
     history.value.push({
@@ -1109,6 +1179,8 @@ const startNewSession = () => {
   autoListenPaused.value = conversationMode.value === 'manual';
   isRequestInFlight.value = false;
   latestVisualContext.value = null;
+  focusCandidates.value = [];
+  activeFocusObject.value = '';
   showDashboard.value = false;
 };
 
@@ -1157,7 +1229,7 @@ const exit = () => {
 
 .app-shell {
   width: min(1380px, 100%);
-  min-height: calc(100vh - 40px);
+  height: calc(100vh - 40px);
   margin: 0 auto;
   background: var(--shell);
   border: 1px solid var(--shell-border);
@@ -1166,7 +1238,8 @@ const exit = () => {
   backdrop-filter: blur(14px);
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .top-bar {
@@ -1520,6 +1593,12 @@ h2 {
   cursor: pointer;
 }
 
+.tiny-btn.active {
+  background: linear-gradient(120deg, var(--accent) 0%, var(--accent-2) 100%);
+  border-color: transparent;
+  color: #fff7ef;
+}
+
 .mode-btn.active {
   background: linear-gradient(120deg, var(--accent) 0%, var(--accent-2) 100%);
   border-color: transparent;
@@ -1534,6 +1613,12 @@ h2 {
 .actions {
   display: flex;
   gap: 8px;
+  flex-wrap: wrap;
+}
+
+.focus-row {
+  display: flex;
+  gap: 6px;
   flex-wrap: wrap;
 }
 
@@ -1606,7 +1691,7 @@ h2 {
   }
 
   .app-shell {
-    min-height: calc(100vh - 20px);
+    height: calc(100vh - 20px);
     border-radius: 18px;
   }
 
