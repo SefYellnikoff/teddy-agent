@@ -3,7 +3,7 @@
 Last update: 2026-03-04
 
 ## Overall Progress
-- Current progress: `80%`
+- Current progress: `100%`
 - Rule: 5 major steps, each worth 20%
 
 ## Roadmap
@@ -11,7 +11,7 @@ Last update: 2026-03-04
 2. `Step 2 - Hands-free Conversation (VAD + auto turn-taking)` - `DONE` (20%)
 3. `Step 3 - Camera Vision Context (objects + colors)` - `DONE` (20%)
 4. `Step 4 - Safe Memory Personalization` - `DONE` (20%)
-5. `Step 5 - Safety Hardening + UX Benchmarks` - `TODO` (0%)
+5. `Step 5 - Safety Hardening + UX Benchmarks` - `DONE` (20%)
 
 ## Implemented in Step 1
 - Added persistent child profile API:
@@ -27,8 +27,8 @@ Last update: 2026-03-04
 - Blocked session start until setup is completed.
 
 ## Notes for Next Step
-- Add stronger content moderation layer before/after model output.
-- Extend benchmark page with UX/safety metrics (latency, safety redirects, interruption recovery).
+- Prepare Cloud Run staging test and demo script for hackathon submission.
+- Run child-voice playtests and tune prompt/voice rate/pitch based on feedback.
 
 ## Implemented in Step 2
 - Added dual conversation mode in UI:
@@ -67,3 +67,20 @@ Last update: 2026-03-04
   - `DELETE /api/memory`
 - Connected safe memory into Gemini prompt as short personalization hints.
 - Added parent dashboard controls to view and clear safe memory.
+
+## Implemented in Step 5
+- Added safety hardening in chat flow:
+  - unsafe input detection before model call
+  - safe redirection reply for blocked topics
+  - post-output safety check to avoid unsafe drift
+- Added live UX metrics backend:
+  - `GET /api/ux-metrics`
+  - `POST /api/ux-event`
+  - runtime counters for latency, safety redirects, errors, interruptions, session starts/ends, vision errors
+- Added dedicated UX dashboard page:
+  - `GET /ux`
+- Extended benchmark page to include live UX & safety panel.
+- Connected frontend events to backend metrics:
+  - session start/end
+  - Teddy interruption
+  - camera enable/disable

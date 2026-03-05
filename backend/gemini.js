@@ -22,6 +22,7 @@ const ENV_FALLBACK_MODELS = (process.env.GEMINI_FALLBACK_MODELS || '')
 const SAFE_FALLBACK_MODELS = ['gemini-2.5-flash', 'gemini-3-flash'];
 const MAX_WORDS = 25;
 const FALLBACK_REPLY = "Great try! Can you tell me one more thing?";
+const SAFETY_REDIRECT_REPLY = "Let's talk about fun kid topics like colors, animals, or games. What game do you like?";
 
 const BASE_TEDDY_PROMPT = `You are Teddy, a friendly English tutor for children aged 6-10.
 Speak in very simple English (A1-A2 level).
@@ -152,6 +153,36 @@ function sanitizeForChild(reply, topic, message, isFirstMessage) {
   }
 
   return output || FALLBACK_REPLY;
+}
+
+function hasUnsafeSignals(text) {
+  const lower = String(text || '').toLowerCase();
+  if (!lower) return false;
+  return (
+    /\b(weapon|gun|knife|bomb|kill|hurt|blood|violence|fight)\b/.test(lower)
+    || /\b(sex|nude|naked|porn)\b/.test(lower)
+    || /\b(drug|alcohol|beer|wine|vodka|cigarette|smoke)\b/.test(lower)
+    || /\b(suicide|self-harm|harm myself|die)\b/.test(lower)
+    || /\b(hate|racist|bully|stupid idiot)\b/.test(lower)
+  );
+}
+
+function buildSafetyRedirectReply() {
+  return SAFETY_REDIRECT_REPLY;
+}
+
+function enforceSafeOutput(reply, topic, message, isFirstMessage) {
+  const base = sanitizeForChild(reply, topic, message, isFirstMessage);
+  if (hasUnsafeSignals(base)) {
+    return {
+      reply: SAFETY_REDIRECT_REPLY,
+      safetyRedirect: true,
+    };
+  }
+  return {
+    reply: base,
+    safetyRedirect: false,
+  };
 }
 
 function previewSanitizedReply(rawReply, topic = 'daily-life', message = '', isFirstMessage = false) {
@@ -366,7 +397,8 @@ async function getTeddyReplyDetailed({
     }
 
     const rawReply = extractReplyText(response);
-    const reply = sanitizeForChild(rawReply, topic, message, isFirstMessage);
+    const safeOutput = enforceSafeOutput(rawReply, topic, message, isFirstMessage);
+    const reply = safeOutput.reply;
     return {
       reply,
       rawReply,
@@ -377,6 +409,7 @@ async function getTeddyReplyDetailed({
         rawReply,
         sanitizedReply: reply,
       }),
+      safetyRedirect: safeOutput.safetyRedirect,
     };
   } catch (error) {
     console.error('Gemini API error:', error);
@@ -392,6 +425,7 @@ async function getTeddyReplyDetailed({
         error: error.message || 'Gemini API error',
         attemptedModels: candidateModels,
       },
+      safetyRedirect: false,
     };
   }
 }
@@ -516,6 +550,9 @@ module.exports = {
   getTeddyReply,
   getTeddyReplyDetailed,
   analyzeVisualScene,
+  hasUnsafeSignals,
+  buildSafetyRedirectReply,
+  enforceSafeOutput,
   previewSanitizedReply,
   getActiveModelName,
 };

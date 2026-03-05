@@ -182,6 +182,7 @@ const API_URL = 'http://localhost:3000/api/chat';
 const API_PROFILE_URL = 'http://localhost:3000/api/profile';
 const API_VISION_URL = 'http://localhost:3000/api/vision/analyze';
 const API_MEMORY_URL = 'http://localhost:3000/api/memory';
+const API_UX_EVENT_URL = 'http://localhost:3000/api/ux-event';
 
 const history = ref([]);
 const sessionPhase = ref('idle');
@@ -510,6 +511,7 @@ const startVisionLoop = async () => {
 const toggleCamera = async () => {
   cameraEnabled.value = !cameraEnabled.value;
   cameraError.value = '';
+  sendUxEvent(cameraEnabled.value ? 'camera_enabled' : 'camera_disabled');
   if (!cameraEnabled.value) {
     stopVisionLoop();
     stopCamera();
@@ -567,6 +569,7 @@ const toggleAutoListen = () => {
 };
 
 const interruptTeddyAndListen = () => {
+  sendUxEvent('interrupt_teddy');
   stopAllSpeech();
   animationState.value = 'idle';
   autoListenPaused.value = false;
@@ -610,6 +613,19 @@ const normalizeMemoryPayload = (payload) => {
     updatedAt: base.updatedAt || null,
     items,
   };
+};
+
+const sendUxEvent = async (type) => {
+  try {
+    await fetch(API_UX_EVENT_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type }),
+    });
+  } catch (eventError) {
+    // Non-blocking metrics event, safe to ignore if it fails.
+    console.warn('UX event failed:', eventError);
+  }
 };
 
 const loadMemory = async () => {
@@ -689,6 +705,7 @@ const startSession = async () => {
   autoListenPaused.value = conversationMode.value === 'manual';
 
   sessionStartTime = Date.now();
+  sendUxEvent('session_start');
   updateTimer = setInterval(updateSessionDuration, 1000);
   startVisionLoop().catch((visionError) => {
     console.warn('Vision loop start failed:', visionError);
@@ -1032,6 +1049,7 @@ const updateSessionDuration = () => {
 };
 
 const endSession = () => {
+  sendUxEvent('session_end');
   autoListenPaused.value = true;
   stopRecording();
   stopAllSpeech();

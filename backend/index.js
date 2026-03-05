@@ -6,6 +6,8 @@ const {
   previewSanitizedReply,
   getActiveModelName,
   analyzeVisualScene,
+  hasUnsafeSignals,
+  buildSafetyRedirectReply,
 } = require('./gemini');
 const { getAvailableModels, getDefaultModels, runBenchmark } = require('./benchmark');
 const { readProfile, saveProfile } = require('./profileStore');
@@ -20,6 +22,33 @@ const benchmarkState = {
   error: null,
 };
 
+const uxMetrics = {
+  updatedAt: new Date().toISOString(),
+  chats: 0,
+  chatErrors: 0,
+  safetyRedirects: 0,
+  latencyTotalMs: 0,
+  interruptions: 0,
+  sessionStarts: 0,
+  sessionEnds: 0,
+  visionCalls: 0,
+  visionErrors: 0,
+};
+
+function bumpUxMetric(key, delta = 1) {
+  uxMetrics[key] = (uxMetrics[key] || 0) + delta;
+  uxMetrics.updatedAt = new Date().toISOString();
+}
+
+function getUxMetricsSummary() {
+  return {
+    ...uxMetrics,
+    avgLatencyMs: uxMetrics.chats > 0
+      ? Math.round(uxMetrics.latencyTotalMs / uxMetrics.chats)
+      : 0,
+  };
+}
+
 // Middleware
 app.use(cors({
   origin: ['http://localhost:5173', 'http://localhost:5174', 'http://localhost:5175'],
@@ -31,6 +60,24 @@ app.use(express.json());
 // Health check endpoint
 app.get('/health', (req, res) => {
   res.json({ status: 'ok' });
+});
+
+app.get('/api/ux-metrics', (req, res) => {
+  return res.json({ metrics: getUxMetricsSummary() });
+});
+
+app.post('/api/ux-event', (req, res) => {
+  const { type } = req.body || {};
+  const normalizedType = String(type || '').trim();
+  if (!normalizedType) {
+    return res.status(400).json({ error: 'type is required' });
+  }
+
+  if (normalizedType === 'interrupt_teddy') bumpUxMetric('interruptions');
+  if (normalizedType === 'session_start') bumpUxMetric('sessionStarts');
+  if (normalizedType === 'session_end') bumpUxMetric('sessionEnds');
+
+  return res.json({ ok: true, metrics: getUxMetricsSummary() });
 });
 
 app.get('/api/profile', (req, res) => {
@@ -72,6 +119,7 @@ app.post('/api/profile', (req, res) => {
 
 app.post('/api/vision/analyze', async (req, res) => {
   try {
+    bumpUxMetric('visionCalls');
     const { imageData } = req.body || {};
     if (!imageData || typeof imageData !== 'string') {
       return res.status(400).json({ error: 'imageData is required and must be a data URL string' });
@@ -83,6 +131,7 @@ app.post('/api/vision/analyze', async (req, res) => {
     const result = await analyzeVisualScene(imageData);
     return res.json(result);
   } catch (error) {
+    bumpUxMetric('visionErrors');
     console.error('Vision analyze error:', error);
     return res.status(500).json({ error: 'Failed to analyze camera frame' });
   }
@@ -115,6 +164,21 @@ app.post('/api/chat', async (req, res) => {
       return res.status(400).json({ error: 'Message is required and must be a string' });
     }
 
+    if (hasUnsafeSignals(message)) {
+      bumpUxMetric('safetyRedirects');
+      return res.json({
+        reply: buildSafetyRedirectReply(),
+        meta: {
+          model: null,
+          latencyMs: 0,
+          usage: {},
+          safetyRedirect: true,
+          reason: 'unsafe_input',
+        },
+        memory: safeMemory,
+      });
+    }
+
     // Generate child-safe reply and collect basic diagnostics.
     const result = await getTeddyReplyDetailed({
       message,
@@ -129,6 +193,11 @@ app.post('/api/chat', async (req, res) => {
 
     // Update only safe, filtered preferences from user message.
     const memoryUpdate = updateMemoryFromMessage(message);
+    bumpUxMetric('chats');
+    bumpUxMetric('latencyTotalMs', Number(meta.latencyMs) || 0);
+    if (result.safetyRedirect) {
+      bumpUxMetric('safetyRedirects');
+    }
 
     console.log('[chat]', {
       model: meta.model,
@@ -139,6 +208,7 @@ app.post('/api/chat', async (req, res) => {
       rawWords: meta.rawWordCount,
       finalWords: meta.sanitizedWordCount,
       memoryItems: (memoryUpdate.memory.items || []).length,
+      safetyRedirect: Boolean(result.safetyRedirect),
     });
 
     // Return the response
@@ -148,6 +218,7 @@ app.post('/api/chat', async (req, res) => {
       memory: memoryUpdate.memory,
     });
   } catch (error) {
+    bumpUxMetric('chatErrors');
     console.error('Chat endpoint error:', error);
     return res.status(500).json({
       error: 'An error occurred while processing your request',
@@ -255,6 +326,7 @@ app.get('/benchmark', (req, res) => {
       <div class="top">
         <h1 style="margin:0; font-size: 26px;">Teddy Benchmark</h1>
         <span class="badge">Active model: ${getActiveModelName()}</span>
+        <a href="/ux" class="badge" style="text-decoration:none;">Open UX Metrics</a>
       </div>
 
       <div class="panel">
@@ -277,6 +349,11 @@ app.get('/benchmark', (req, res) => {
           <div id="samples" class="muted">No benchmark run yet.</div>
         </div>
       </div>
+
+      <div class="panel">
+        <h3 style="margin-top:0">Live UX & Safety</h3>
+        <div id="uxMetrics" class="muted">Loading...</div>
+      </div>
     </div>
 
     <script>
@@ -285,6 +362,7 @@ app.get('/benchmark', (req, res) => {
       const statusEl = document.getElementById('status');
       const summaryEl = document.getElementById('summary');
       const samplesEl = document.getElementById('samples');
+      const uxMetricsEl = document.getElementById('uxMetrics');
 
       function renderModelSelect(availableModels, defaultModels) {
         const modelSet = new Set([...(availableModels || []), ...(defaultModels || [])]);
@@ -352,6 +430,22 @@ app.get('/benchmark', (req, res) => {
         samplesEl.innerHTML = items;
       }
 
+      async function loadUxMetrics() {
+        const response = await fetch('/api/ux-metrics');
+        const payload = await response.json();
+        const m = payload.metrics || {};
+        uxMetricsEl.innerHTML =
+          '<div class="muted">Updated: ' + new Date(m.updatedAt || Date.now()).toLocaleString() + '</div>'
+          + '<div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:8px;">'
+          + '<div><strong>Avg latency:</strong> ' + (m.avgLatencyMs || 0) + ' ms</div>'
+          + '<div><strong>Safety redirects:</strong> ' + (m.safetyRedirects || 0) + '</div>'
+          + '<div><strong>Interruptions:</strong> ' + (m.interruptions || 0) + '</div>'
+          + '<div><strong>Chat errors:</strong> ' + (m.chatErrors || 0) + '</div>'
+          + '<div><strong>Vision errors:</strong> ' + (m.visionErrors || 0) + '</div>'
+          + '<div><strong>Sessions:</strong> ' + (m.sessionStarts || 0) + ' start / ' + (m.sessionEnds || 0) + ' end</div>'
+          + '</div>';
+      }
+
       async function loadState() {
         const response = await fetch('/api/benchmark');
         const state = await response.json();
@@ -365,6 +459,9 @@ app.get('/benchmark', (req, res) => {
         }
         renderSummary(state.data);
         renderSamples(state.data);
+        loadUxMetrics().catch(() => {
+          uxMetricsEl.textContent = 'Failed to load UX metrics';
+        });
         runBtn.disabled = Boolean(state.running);
       }
 
@@ -405,6 +502,72 @@ app.get('/benchmark', (req, res) => {
         statusEl.textContent = err.message || 'Failed to load benchmark state';
         statusEl.className = 'error';
       });
+      setInterval(() => {
+        loadUxMetrics().catch(() => {});
+      }, 5000);
+    </script>
+  </body>
+</html>`);
+});
+
+app.get('/ux', (req, res) => {
+  res.type('html').send(`<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Teddy UX Metrics</title>
+    <style>
+      body { font-family: ui-sans-serif, -apple-system, Segoe UI, Roboto, Arial; margin: 0; background: #0f172a; color: #e2e8f0; }
+      .wrap { max-width: 940px; margin: 0 auto; padding: 24px; }
+      .panel { background: #111827; border: 1px solid #334155; border-radius: 12px; padding: 16px; margin-bottom: 14px; }
+      .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+      .card { background: #0b1220; border: 1px solid #334155; border-radius: 10px; padding: 12px; }
+      .label { font-size: 12px; color: #94a3b8; margin-bottom: 6px; }
+      .value { font-size: 22px; font-weight: 700; color: #f8fafc; }
+      .muted { color: #94a3b8; font-size: 12px; }
+      @media (max-width: 800px) { .grid { grid-template-columns: 1fr; } }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="panel">
+        <h1 style="margin:0 0 8px 0;">Teddy UX & Safety Metrics</h1>
+        <div class="muted">Live counters from backend runtime.</div>
+      </div>
+      <div class="grid" id="grid"></div>
+      <div class="panel muted" id="updated">Updated: -</div>
+    </div>
+    <script>
+      const gridEl = document.getElementById('grid');
+      const updatedEl = document.getElementById('updated');
+      const fields = [
+        ['chats', 'Chats'],
+        ['avgLatencyMs', 'Avg Latency (ms)'],
+        ['safetyRedirects', 'Safety Redirects'],
+        ['chatErrors', 'Chat Errors'],
+        ['interruptions', 'Interruptions'],
+        ['sessionStarts', 'Session Starts'],
+        ['sessionEnds', 'Session Ends'],
+        ['visionCalls', 'Vision Calls'],
+        ['visionErrors', 'Vision Errors'],
+      ];
+
+      function render(metrics) {
+        gridEl.innerHTML = fields.map(([key, label]) =>
+          '<div class="card"><div class="label">' + label + '</div><div class="value">' + (metrics[key] || 0) + '</div></div>'
+        ).join('');
+        updatedEl.textContent = 'Updated: ' + new Date(metrics.updatedAt).toLocaleString();
+      }
+
+      async function load() {
+        const res = await fetch('/api/ux-metrics');
+        const json = await res.json();
+        render(json.metrics || {});
+      }
+
+      load().catch(() => {});
+      setInterval(() => load().catch(() => {}), 4000);
     </script>
   </body>
 </html>`);
