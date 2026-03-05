@@ -37,6 +37,21 @@
       <p v-else class="empty-msg">Great job! No corrections needed. 🎉</p>
     </div>
 
+    <div class="memory-section">
+      <div class="memory-header">
+        <h3>🧠 Safe Memory</h3>
+        <button class="memory-clear-btn" :disabled="memoryBusy" @click="emit('clear-memory')">
+          {{ memoryBusy ? 'Clearing...' : 'Clear Memory' }}
+        </button>
+      </div>
+      <div v-if="safeMemory.items.length > 0" class="topics-list">
+        <span v-for="(item, idx) in safeMemory.items" :key="`${item.type}-${item.value}-${idx}`" class="topic-tag">
+          {{ item.type }}: {{ item.value }}
+        </span>
+      </div>
+      <p v-else class="empty-msg">No safe preferences stored yet.</p>
+    </div>
+
     <div class="dashboard-footer">
       <button class="btn-primary" @click="handleNewSession">Start New Session</button>
       <button class="btn-secondary" @click="handleExit">Exit</button>
@@ -57,9 +72,20 @@ defineProps({
       mistakes: [],
     }),
   },
+  safeMemory: {
+    type: Object,
+    default: () => ({
+      items: [],
+      updatedAt: null,
+    }),
+  },
+  memoryBusy: {
+    type: Boolean,
+    default: false,
+  },
 });
 
-const emit = defineEmits(['close', 'new-session', 'exit']);
+const emit = defineEmits(['close', 'new-session', 'clear-memory', 'exit']);
 
 const formatDuration = (seconds) => {
   const mins = Math.floor(seconds / 60);
@@ -143,15 +169,41 @@ const handleExit = () => {
 }
 
 .topics-section,
-.mistakes-section {
+.mistakes-section,
+.memory-section {
   margin-bottom: 30px;
 }
 
 .topics-section h3,
-.mistakes-section h3 {
+.mistakes-section h3,
+.memory-section h3 {
   color: var(--primary);
   margin-bottom: 15px;
   font-size: 16px;
+}
+
+.memory-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.memory-clear-btn {
+  border: 1px solid var(--primary);
+  color: var(--primary);
+  background: white;
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.memory-clear-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .topics-list {

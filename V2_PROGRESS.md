@@ -3,14 +3,14 @@
 Last update: 2026-03-04
 
 ## Overall Progress
-- Current progress: `60%`
+- Current progress: `80%`
 - Rule: 5 major steps, each worth 20%
 
 ## Roadmap
 1. `Step 1 - Parent Onboarding + Child Profile` - `DONE` (20%)
 2. `Step 2 - Hands-free Conversation (VAD + auto turn-taking)` - `DONE` (20%)
 3. `Step 3 - Camera Vision Context (objects + colors)` - `DONE` (20%)
-4. `Step 4 - Safe Memory Personalization` - `TODO` (0%)
+4. `Step 4 - Safe Memory Personalization` - `DONE` (20%)
 5. `Step 5 - Safety Hardening + UX Benchmarks` - `TODO` (0%)
 
 ## Implemented in Step 1
@@ -27,8 +27,8 @@ Last update: 2026-03-04
 - Blocked session start until setup is completed.
 
 ## Notes for Next Step
-- Add short-term memory store for safe preferences (favorite colors, toys, activities).
-- Add strict memory filters to block personal/sensitive information.
+- Add stronger content moderation layer before/after model output.
+- Extend benchmark page with UX/safety metrics (latency, safety redirects, interruption recovery).
 
 ## Implemented in Step 2
 - Added dual conversation mode in UI:
@@ -54,3 +54,16 @@ Last update: 2026-03-04
   - enable/disable camera control
   - periodic frame analysis loop during practice
 - Added visual context injection into chat requests so Teddy can reference toys/colors naturally.
+
+## Implemented in Step 4
+- Added backend safe memory store (`backend/memoryStore.js`) with persistence.
+- Added conservative extraction from child messages for:
+  - colors
+  - toys
+  - activities
+- Added sensitive-signal filtering to avoid storing likely personal data.
+- Added memory APIs:
+  - `GET /api/memory`
+  - `DELETE /api/memory`
+- Connected safe memory into Gemini prompt as short personalization hints.
+- Added parent dashboard controls to view and clear safe memory.

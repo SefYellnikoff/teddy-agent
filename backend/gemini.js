@@ -220,6 +220,34 @@ ${lines.join('\n')}
 Use this only as a light hint for playful conversation.`;
 }
 
+function buildMemoryPrompt(safeMemory = null) {
+  if (!safeMemory || typeof safeMemory !== 'object') return '';
+  const items = Array.isArray(safeMemory.items) ? safeMemory.items : [];
+  if (!items.length) return '';
+
+  const grouped = {
+    color: [],
+    toy: [],
+    activity: [],
+  };
+
+  items.forEach((item) => {
+    if (grouped[item.type] && item.value) {
+      grouped[item.type].push(item.value);
+    }
+  });
+
+  const lines = [];
+  if (grouped.color.length) lines.push(`Known favorite colors: ${[...new Set(grouped.color)].slice(0, 4).join(', ')}.`);
+  if (grouped.toy.length) lines.push(`Known favorite toys: ${[...new Set(grouped.toy)].slice(0, 4).join(', ')}.`);
+  if (grouped.activity.length) lines.push(`Known favorite activities: ${[...new Set(grouped.activity)].slice(0, 4).join(', ')}.`);
+  if (!lines.length) return '';
+
+  return `Safe memory hints:
+${lines.join('\n')}
+Use naturally. Keep references short and playful.`;
+}
+
 function extractUsageMetadata(response) {
   if (!response || typeof response !== 'object') return {};
   const usage = response.usageMetadata || {};
@@ -288,6 +316,7 @@ async function getTeddyReplyDetailed({
   model = ACTIVE_MODEL_NAME,
   childProfile = null,
   visualContext = null,
+  safeMemory = null,
 }) {
   const startedAt = Date.now();
   const candidateModels = getCandidateModels(model);
@@ -296,7 +325,8 @@ async function getTeddyReplyDetailed({
     const promptBase = buildSystemPrompt(topic, isFirstMessage || message === '[START_SESSION]');
     const profilePrompt = buildChildProfilePrompt(childProfile);
     const visualPrompt = buildVisualContextPrompt(visualContext);
-    const systemPromptText = [promptBase, profilePrompt, visualPrompt].filter(Boolean).join('\n\n');
+    const memoryPrompt = buildMemoryPrompt(safeMemory);
+    const systemPromptText = [promptBase, profilePrompt, visualPrompt, memoryPrompt].filter(Boolean).join('\n\n');
 
     const contents = (isFirstMessage || message === '[START_SESSION]')
       ? [{ role: 'user', parts: [{ text: 'Hello Teddy!' }] }]

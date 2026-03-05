@@ -9,6 +9,7 @@ const {
 } = require('./gemini');
 const { getAvailableModels, getDefaultModels, runBenchmark } = require('./benchmark');
 const { readProfile, saveProfile } = require('./profileStore');
+const { readMemory, clearMemory, updateMemoryFromMessage } = require('./memoryStore');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -87,6 +88,15 @@ app.post('/api/vision/analyze', async (req, res) => {
   }
 });
 
+app.get('/api/memory', (req, res) => {
+  return res.json({ memory: readMemory() });
+});
+
+app.delete('/api/memory', (req, res) => {
+  const memory = clearMemory();
+  return res.json({ memory });
+});
+
 // Chat endpoint
 app.post('/api/chat', async (req, res) => {
   try {
@@ -98,6 +108,7 @@ app.post('/api/chat', async (req, res) => {
       visualContext = null,
     } = req.body;
     const childProfile = readProfile();
+    const safeMemory = readMemory();
 
     // Validate request
     if (!message || typeof message !== 'string') {
@@ -112,8 +123,12 @@ app.post('/api/chat', async (req, res) => {
       isFirstMessage,
       childProfile,
       visualContext,
+      safeMemory,
     });
     const { reply, meta } = result;
+
+    // Update only safe, filtered preferences from user message.
+    const memoryUpdate = updateMemoryFromMessage(message);
 
     console.log('[chat]', {
       model: meta.model,
@@ -123,12 +138,14 @@ app.post('/api/chat', async (req, res) => {
       outputTokens: meta.usage.candidatesTokenCount,
       rawWords: meta.rawWordCount,
       finalWords: meta.sanitizedWordCount,
+      memoryItems: (memoryUpdate.memory.items || []).length,
     });
 
     // Return the response
     return res.json({
       reply,
       meta,
+      memory: memoryUpdate.memory,
     });
   } catch (error) {
     console.error('Chat endpoint error:', error);

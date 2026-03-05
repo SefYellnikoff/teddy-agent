@@ -159,8 +159,11 @@
     <div v-else class="dashboard-overlay">
       <ParentDashboard
         :session-stats="sessionStats"
+        :safe-memory="safeMemory"
+        :memory-busy="memoryBusy"
         @close="showDashboard = false"
         @new-session="startNewSession"
+        @clear-memory="clearSafeMemory"
         @exit="exit"
       />
     </div>
@@ -178,6 +181,7 @@ import ParentDashboard from './components/ParentDashboard.vue';
 const API_URL = 'http://localhost:3000/api/chat';
 const API_PROFILE_URL = 'http://localhost:3000/api/profile';
 const API_VISION_URL = 'http://localhost:3000/api/vision/analyze';
+const API_MEMORY_URL = 'http://localhost:3000/api/memory';
 
 const history = ref([]);
 const sessionPhase = ref('idle');
@@ -201,6 +205,8 @@ const cameraError = ref('');
 const visionInFlight = ref(false);
 const latestVisualContext = ref(null);
 const cameraVideoRef = ref(null);
+const safeMemory = ref({ items: [], updatedAt: null });
+const memoryBusy = ref(false);
 const profileForm = reactive({
   childName: '',
   ageGroup: '6-7',
@@ -230,6 +236,9 @@ let cameraCanvas = null;
 onMounted(() => {
   loadProfile().catch((loadError) => {
     console.warn('Profile load failed:', loadError);
+  });
+  loadMemory().catch((loadError) => {
+    console.warn('Safe memory load failed:', loadError);
   });
 
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -594,6 +603,40 @@ const loadProfile = async () => {
   applyProfile(data.profile || null);
 };
 
+const normalizeMemoryPayload = (payload) => {
+  const base = payload && typeof payload === 'object' ? payload : {};
+  const items = Array.isArray(base.items) ? base.items : [];
+  return {
+    updatedAt: base.updatedAt || null,
+    items,
+  };
+};
+
+const loadMemory = async () => {
+  const response = await fetch(API_MEMORY_URL);
+  if (!response.ok) {
+    throw new Error(`Memory API error: ${response.status}`);
+  }
+  const data = await response.json();
+  safeMemory.value = normalizeMemoryPayload(data.memory);
+};
+
+const clearSafeMemory = async () => {
+  memoryBusy.value = true;
+  try {
+    const response = await fetch(API_MEMORY_URL, { method: 'DELETE' });
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.error || `Memory clear error: ${response.status}`);
+    }
+    safeMemory.value = normalizeMemoryPayload(data.memory);
+  } catch (clearError) {
+    error.value = clearError.message || 'Failed to clear memory.';
+  } finally {
+    memoryBusy.value = false;
+  }
+};
+
 const saveParentSetup = async () => {
   setupError.value = '';
 
@@ -671,6 +714,9 @@ const startSession = async () => {
 
     const data = await response.json();
     const teddyGreeting = data.reply;
+    if (data.memory) {
+      safeMemory.value = normalizeMemoryPayload(data.memory);
+    }
 
     history.value.push({
       role: 'model',
@@ -788,6 +834,9 @@ const handleUserMessage = async (userText) => {
 
     const data = await response.json();
     const teddyReply = data.reply;
+    if (data.memory) {
+      safeMemory.value = normalizeMemoryPayload(data.memory);
+    }
 
     history.value.push({
       role: 'model',
